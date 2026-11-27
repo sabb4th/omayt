@@ -683,6 +683,27 @@ def _get_terminal_cell_pixel_size() -> tuple[float, float]:
     return (11.0, 22.0)
 
 
+# Terminals that advertise the Kitty graphics protocol through TERM_PROGRAM.
+KITTY_GRAPHICS_TERM_PROGRAMS = frozenset({"ghostty", "herdr", "wezterm"})
+
+
+def terminal_supports_kitty_graphics() -> bool:
+    """True when the terminal in use implements the Kitty graphics protocol.
+
+    This is the single place that decides it, from the environment only, so it
+    also works for a terminal multiplexer (herdr) or an emulator that does not
+    export the Kitty variables but states the protocol through TERM_PROGRAM.
+    Used by the thumbnail preview, the inline `--vo=kitty` playback and the
+    diagnostics panel.
+    """
+    if os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR"):
+        return True
+    if os.environ.get("TERM", "").strip().lower() == "xterm-kitty":
+        return True
+    return os.environ.get("TERM_PROGRAM", "").strip().lower() in KITTY_GRAPHICS_TERM_PROGRAMS
+
+
+
 def compute_optimal_thumb_px_width(preview_cols: int, preview_lines: int) -> int:
     cell_w, cell_h = _get_terminal_cell_pixel_size()
     avail_w = int(max(30, preview_cols - 2) * cell_w)
@@ -781,11 +802,9 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
     img_rows = max(12, min(preview_lines - 11, 28))
     px_width = compute_optimal_thumb_px_width(preview_cols, preview_lines)
 
-    is_kitty_or_ghostty = bool(
-        os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
-    )
+    kitty_graphics = terminal_supports_kitty_graphics()
 
-    if is_kitty_or_ghostty and shutil.which("kitten"):
+    if kitty_graphics and shutil.which("kitten"):
         dim = f"{cols}x{img_rows}@0x0"
         proc = subprocess.run(
             [
@@ -2554,10 +2573,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
     no_av1_720 = "bestvideo[height<=?720][vcodec!^=av01]+bestaudio/best[height<=?720][vcodec!^=av01]/best[vcodec!^=av01]/best"
 
     if mode == "inline-pixels":
-        is_kitty_or_ghostty = bool(
-            os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
-        )
-        if is_kitty_or_ghostty:
+        if terminal_supports_kitty_graphics():
             base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
                 "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)",
@@ -2745,10 +2761,7 @@ def play_direct_target(
     no_av1_720 = "bestvideo[height<=?720][vcodec!^=av01]+bestaudio/best[height<=?720][vcodec!^=av01]/best[vcodec!^=av01]/best"
 
     if mode == "inline-pixels":
-        is_kitty_or_ghostty = bool(
-            os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
-        )
-        if is_kitty_or_ghostty:
+        if terminal_supports_kitty_graphics():
             base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
                 "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)",
@@ -3978,6 +3991,7 @@ class OmarchyMainMenu:
                 (bool(shutil.which("mpv")), "mpv"),
                 (bool(shutil.which("ffmpeg")), "ffmpeg"),
                 (os.path.exists("/usr/lib/libsixel.so.1"), "libsixel"),
+                (terminal_supports_kitty_graphics(), "kitty"),
                 (bool(shutil.which("wl-copy")), "wl-copy"),
                 (bool(shutil.which("parec") or shutil.which("pw-record")), "PipeWire"),
             ]
