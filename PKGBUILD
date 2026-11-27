@@ -13,7 +13,7 @@ optdepends=(
   'libnotify: desktop notifications when copying links'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/sabb4th/omayt/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('f87c153dbbb69e9764bdd3e9a157cf75b64646c8f9201b8469b7c73974e108da')
+sha256sums=('ce52d51e522a885f0b32fbcafbc43fba1d7677bbd81e2693524157adeca64e6f')
 
 package() {
   cd "$srcdir/$pkgname-$pkgver"
