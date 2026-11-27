@@ -1646,10 +1646,10 @@ def format_tui_rows(
 
     for idx, v in enumerate(videos, 1):
         vid = v.get("id", "")
-        title = localize_video_title(v.get("title"), vid)
+        title = strip_terminal_escapes(localize_video_title(v.get("title"), vid))
         if len(title) > 52:
             title = title[:49] + "..."
-        channel = v.get("channel", "YouTube")
+        channel = strip_terminal_escapes(v.get("channel", "YouTube"))
         if len(channel) > 18:
             channel = channel[:16] + ".."
         dur = localize_duration(v.get("duration", "??:??"), v.get("duration_raw"))
@@ -1850,7 +1850,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
-    disp_title = localize_video_title(video.get("title"), item_id)
+    disp_title = strip_terminal_escapes(localize_video_title(video.get("title"), item_id))
     wrapped_title = textwrap.wrap(disp_title, width=wrap_w)
     for line in wrapped_title[:2]:
         print(f" {c_fg}{line}{rst}")
@@ -1863,7 +1863,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     disp_views = localize_views(video.get("views", "—"), video.get("views_raw"))
 
     print(f" {sep}")
-    print(f" {c_acc}󰠃 {tr('Channel:', 'Chaîne :', 'Canal:')}{rst} {c_grn}{video.get('channel', '—')}{rst}")
+    print(f" {c_acc}󰠃 {tr('Channel:', 'Chaîne :', 'Canal:')}{rst} {c_grn}{strip_terminal_escapes(video.get('channel', '—'))}{rst}")
     print(
         f" {c_acc}󰥔 {tr('Runtime:', 'Durée :', 'Duração:')}{rst} {c_yel}{disp_dur}{rst}   "
         f"{c_acc}󰈈 {tr('Views:', 'Vues :', 'Visualizações:')}{rst} {c_mag}{disp_views}{rst}"
@@ -2333,10 +2333,12 @@ class CavaVisualizerPlayer:
         rst = THEME.reset
 
         inner_w = cols - 6
-        title = localize_video_title(self.video.get("title"), str(self.video.get("id") or ""))
+        title = strip_terminal_escapes(
+            localize_video_title(self.video.get("title"), str(self.video.get("id") or ""))
+        )
         if len(title) > inner_w - 4:
             title = title[: inner_w - 7] + "..."
-        channel = self.video.get("channel", "YouTube")
+        channel = strip_terminal_escapes(self.video.get("channel", "YouTube"))
 
         # Song progress bar
         pos_str = format_duration(int(self.time_pos)) if self.time_pos > 0 else "00:00"
@@ -2801,6 +2803,25 @@ def play_direct_target(
 # ============================================================================
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+
+# Remote text (titles, channel names) is attacker-controlled. These remove the
+# sequences a terminal would interpret before anything is printed.
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def strip_terminal_escapes(text: Any) -> str:
+    """Drops escape sequences and control characters from remote text.
+
+    A video title can carry OSC/CSI sequences (clipboard writes, colours) and
+    they must never reach the terminal as control bytes. The visible characters
+    are kept, including emoji and CJK.
+    """
+    clean = _OSC_RE.sub("", str(text if text is not None else ""))
+    clean = _CSI_RE.sub("", clean)
+    return _CONTROL_RE.sub("", clean)
+
 
 OMAYT_ASCII_LOGO = (
     " ██████╗ ███╗   ███╗ █████╗ ██╗   ██╗████████╗",
