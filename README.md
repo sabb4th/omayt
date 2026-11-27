@@ -75,7 +75,9 @@ Traditional terminal clients (`ytfzf` or plain `mpv`) often fail with `HTTP 403 
 
 </details>
 
-### 🔎 Paginated search (30 at a time), direct URL, offline library & diagnostics
+### 🔎 Channel search (`channel/`), search filters (`Alt+F`), paginated search & diagnostics
+- **Channel-only search (`channel/`):** Type `name/` (e.g. `raimundo/`) to list **only videos from that channel** (newest first, with +30 pagination), or `name/topic` (e.g. `raimundo/bitcoin`) to search within that channel.
+- **Search filters (`Alt+F`):** Press `Alt+F` (or `Ctrl+O`) inside the TUI — or `Tab` / `Alt+F` in the search modal — to filter results by **Today**, **This week**, **This month**, **This year**, **Most viewed**, **Short (< 3 min)**, **Medium (3–20 min)**, **Long (> 20 min)** or **Live**.
 - **30-at-a-time pagination:** Every search loads 30 results and lets you expand **+30 results** on demand (`Alt+M`, `Ctrl+E` or by selecting the item at the end of the list), preserving order and cursor position.
 - **Direct link / URL (`[5]`):** Accepts full URLs (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) or 11-character IDs, with **clipboard auto-detection** through `wl-paste` and a choice of player (*MPV window*, *Sixel/Kitty terminal*, *Cava* or *Download*).
 - **Downloads & offline library (`Alt+D` / `[6]`):** Download videos as **MP4 (1080p H.264/VP9)** or audio only as **MP3** into `~/Videos/omayt/`, and play the local files straight from the menu.
@@ -137,6 +139,13 @@ omayt
 # Search YouTube directly (30 initial results + HD thumbnails)
 omayt "omarchy linux"
 
+# List all videos from a specific channel (or search inside that channel)
+omayt "raimundo/"
+omayt "raimundo/bitcoin"
+
+# Search with a filter directly from CLI (today, week, month, year, views, short, medium, long, live)
+omayt --filter views "omarchy linux"
+
 # Skip the splash menu and open the TUI explorer (fzf) directly
 omayt --no-menu
 omayt -t
@@ -158,12 +167,13 @@ omayt -h
 
 ### 🌍 Interface language
 
-The interface ships in **English**, **French** and **Brazilian Portuguese** — main menu, `fzf` labels, preview pane, player banners and `--help`. It is picked in this order:
+The interface ships in **English**, **Brazilian Portuguese** and **French** — main menu, `fzf` labels, preview pane, player banners and `--help`. On first launch it automatically follows your **Omarchy language** (`~/.config/omarchy/language`) and can be switched anytime in **[7] Settings & Diagnostics** (`[e]` English, `[p]` Português (Brasil), `[l]` toggle). Resolution order:
 
-1. `OMAYT_LANG` (`en`, `fr`, `pt`, plus `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), which always wins;
-2. the language saved with **`l`** in **[7] Settings & Diagnostics**;
-3. your system locale (`LANG` / `LC_MESSAGES`), so a French or Brazilian desktop starts in that language;
-4. English otherwise.
+1. `OMAYT_LANG` (`en`, `pt`, `fr`, plus `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), which always wins;
+2. the language saved in **[7] Settings & Diagnostics** (`~/.config/omayt/settings.json`);
+3. **Omarchy's system language** (`~/.config/omarchy/language`, e.g. `pt-BR` starts in Portuguese, `en` starts in English);
+4. your system locale (`LC_ALL` / `LC_MESSAGES` / `LANG`);
+5. English otherwise.
 
 ```bash
 # One run only, without touching the saved preference
@@ -189,7 +199,8 @@ OMAYT_LANG=pt omayt
 | Shortcut | Action |
 | :--- | :--- |
 | **`Enter`** | Watch in **`mpv`** *(or play in Cava in music mode; searches on the first line ` ` / loads +30 on the last line `󰐕`)* |
-| **`Ctrl+S`** | **Search YouTube** for the term typed in the top bar *(30 results)* |
+| **`Ctrl+S`** | **Search YouTube** for the term typed in the top bar *(30 results; supports `channel/` and `channel/topic`)* |
+| **`Alt+F`** *(or `Ctrl+O`)* | **Choose search filter** *(Relevance, Today, Week, Month, Year, Most viewed, Short, Medium, Long, Live)* |
 | **`Alt+M`** *(or `Ctrl+E`)* | **Load +30 results** for the current search *(30-at-a-time pagination)* |
 | **`Alt+I`** *(or `Ctrl+T`)* | Watch **inside the terminal** in real pixels (`--vo=sixel` / `--vo=kitty`) |
 | **`Alt+B`** | Watch inside the terminal in **TrueColor blocks** (`--vo=tct`) |

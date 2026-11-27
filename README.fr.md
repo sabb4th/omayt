@@ -75,7 +75,9 @@ Les clients de terminal traditionnels (`ytfzf` ou `mpv` seul) échouent souvent 
 
 </details>
 
-### 🔎 Recherche paginée (30 par 30), URL directe, bibliothèque hors ligne & diagnostics
+### 🔎 Recherche par chaîne (`chaîne/`), filtres de recherche (`Alt+F`), pagination & diagnostics
+- **Recherche dédiée à une chaîne (`chaîne/`) :** saisissez `nom/` (ex. `raimundo/`) pour lister **uniquement les vidéos de cette chaîne** (du plus récent au plus ancien, avec pagination +30), ou `nom/sujet` (ex. `raimundo/bitcoin`) pour rechercher dans cette chaîne.
+- **Filtres de recherche (`Alt+F`) :** appuyez sur `Alt+F` (ou `Ctrl+O`) dans la TUI — ou `Tab` / `Alt+F` dans la fenêtre de recherche — pour filtrer par **Aujourd'hui**, **Cette semaine**, **Ce mois-ci**, **Cette année**, **Les plus vues**, **Courtes (< 3 min)**, **Moyennes (3–20 min)**, **Longues (> 20 min)** ou **En direct**.
 - **Pagination par 30 :** chaque recherche charge 30 résultats et permet d'en étendre **+30** à la demande (`Alt+M`, `Ctrl+E` ou en sélectionnant l'élément en fin de liste), en préservant l'ordre et la position du curseur.
 - **Lien direct / URL (`[5]`) :** accepte les URL complètes (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) ou les ID de 11 caractères, avec **détection automatique du presse-papiers** via `wl-paste` et un choix du lecteur (*Fenêtre MPV*, *Terminal Sixel/Kitty*, *Cava* ou *Téléchargement*).
 - **Téléchargements & bibliothèque hors ligne (`Alt+D` / `[6]`) :** télécharge les vidéos en **MP4 (1080p H.264/VP9)** ou l'audio seul en **MP3** dans `~/Videos/omayt/`, et lit les fichiers locaux directement depuis le menu.
@@ -137,6 +139,13 @@ omayt
 # Recherche directement sur YouTube (30 résultats initiaux + vignettes HD)
 omayt "omarchy linux"
 
+# Liste toutes les vidéos d'une chaîne précise (ou recherche dans cette chaîne)
+omayt "raimundo/"
+omayt "raimundo/bitcoin"
+
+# Recherche avec un filtre depuis la CLI (today, week, month, year, views, short, medium, long, live)
+omayt --filter views "omarchy linux"
+
 # Ignore le menu d'accueil et ouvre directement l'explorateur TUI (fzf)
 omayt --no-menu
 omayt -t
@@ -158,12 +167,13 @@ omayt -h
 
 ### 🌍 Langue de l'interface
 
-L'interface est livrée en **anglais**, en **français** et en **portugais du Brésil** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Elle est choisie dans cet ordre :
+L'interface est livrée en **anglais**, en **portugais du Brésil** et en **français** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Au premier lancement, elle suit automatiquement la **langue d'Omarchy** (`~/.config/omarchy/language`) et peut être modifiée à tout moment dans **[7] Paramètres & diagnostics** (`[e]` English, `[p]` Português (Brasil), `[l]` basculer). Ordre de priorité :
 
-1. `OMAYT_LANG` (`en`, `fr`, `pt`, ainsi que `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), toujours prioritaire ;
-2. la langue enregistrée avec **`l`** dans **[7] Paramètres & diagnostics** ;
-3. votre locale système (`LANG` / `LC_MESSAGES`), donc un bureau français ou brésilien démarre dans cette langue ;
-4. l'anglais sinon.
+1. `OMAYT_LANG` (`en`, `pt`, `fr`, ainsi que `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), toujours prioritaire ;
+2. la langue enregistrée dans **[7] Paramètres & diagnostics** (`~/.config/omayt/settings.json`) ;
+3. la **langue système d'Omarchy** (`~/.config/omarchy/language`) ;
+4. votre locale système (`LC_ALL` / `LC_MESSAGES` / `LANG`) ;
+5. l'anglais sinon.
 
 ```bash
 # Pour un seul lancement, sans toucher au réglage enregistré
@@ -189,7 +199,8 @@ OMAYT_LANG=pt omayt
 | Raccourci | Action |
 | :--- | :--- |
 | **`Enter`** | Regarder dans **`mpv`** *(ou lire dans Cava en mode musique ; rechercher sur la première ligne ` ` / charger +30 sur la dernière ligne `󰐕`)* |
-| **`Ctrl+S`** | **Rechercher sur YouTube** le terme saisi dans la barre du haut *(30 résultats)* |
+| **`Ctrl+S`** | **Rechercher sur YouTube** le terme saisi dans la barre du haut *(30 résultats ; prend en charge `chaîne/` et `chaîne/sujet`)* |
+| **`Alt+F`** *(ou `Ctrl+O`)* | **Choisir un filtre de recherche** *(Pertinence, Aujourd'hui, Semaine, Mois, Année, Plus vues, Courtes, Moyennes, Longues, Direct)* |
 | **`Alt+M`** *(ou `Ctrl+E`)* | **Charger +30 résultats** pour la recherche en cours *(pagination par 30)* |
 | **`Alt+I`** *(ou `Ctrl+T`)* | Regarder **dans le terminal** en vrais pixels (`--vo=sixel` / `--vo=kitty`) |
 | **`Alt+B`** | Regarder dans le terminal en **blocs TrueColor** (`--vo=tct`) |

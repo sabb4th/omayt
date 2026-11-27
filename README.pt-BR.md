@@ -75,7 +75,9 @@ Clientes de terminal tradicionais (`ytfzf` ou `mpv` puro) frequentemente falham 
 
 </details>
 
-### 🔎 Busca Paginada (30 em 30), URL Direta, Biblioteca Offline & Diagnóstico
+### 🔎 Busca por Canal (`canal/`), Filtros de Pesquisa (`Alt+F`), Paginação & Diagnóstico
+- **Busca exclusiva de canal (`canal/`):** Digite `nome/` (ex.: `raimundo/`) para listar **somente os vídeos daquele canal** (do mais recente em diante, com paginação +30), ou `nome/termo` (ex.: `raimundo/bitcoin`) para pesquisar dentro do canal.
+- **Filtros de pesquisa (`Alt+F`):** Pressione `Alt+F` (ou `Ctrl+O`) na TUI — ou `Tab` / `Alt+F` no modal de busca — para filtrar por **Hoje**, **Esta semana**, **Este mês**, **Este ano**, **Mais vistos**, **Curtos (< 3 min)**, **Médios (3–20 min)**, **Longos (> 20 min)** ou **Ao vivo**.
 - **Paginação 30 em 30:** Cada pesquisa carrega 30 resultados e permite expandir **+30 resultados** sob demanda (`Alt+M`, `Ctrl+E` ou selecionando o item ao final da lista), preservando a ordem e a posição do cursor.
 - **Link / URL Direta (`[5]`):** Suporta URLs completas (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) ou IDs de 11 caracteres, com **auto-detecção da área de transferência** via `wl-paste` e escolha de player (*Janela MPV*, *Terminal Sixel/Kitty*, *Cava* ou *Download*).
 - **Downloads & Biblioteca Offline (`Alt+D` / `[6]`):** Baixe vídeos em **MP4 (1080p H.264/VP9)** ou apenas áudio em **MP3** para `~/Videos/omayt/` e reproduza os arquivos locais diretamente pelo menu.
@@ -137,6 +139,13 @@ omayt
 # Pesquisar direto no YouTube (30 resultados iniciais + thumbnails HD)
 omayt "omarchy linux"
 
+# Listar somente os vídeos de um canal específico (ou pesquisar dentro dele)
+omayt "raimundo/"
+omayt "raimundo/bitcoin"
+
+# Pesquisar com filtro direto pela CLI (today, week, month, year, views, short, medium, long, live)
+omayt --filter views "omarchy linux"
+
 # Pular o menu inicial e abrir direto no explorador TUI (fzf)
 omayt --no-menu
 omayt -t
@@ -158,12 +167,13 @@ omayt -h
 
 ### 🌍 Idioma da interface
 
-A interface vem em **inglês**, **francês** e **português do Brasil** — menu principal, rótulos do `fzf`, painel de preview, faixas dos players e `--help`. A escolha segue esta ordem:
+A interface vem em **português do Brasil**, **inglês** e **francês** — menu principal, rótulos do `fzf`, painel de preview, faixas dos players e `--help`. De primeira, o app acompanha automaticamente o **idioma do Omarchy** (`~/.config/omarchy/language`) e pode ser alternado a qualquer momento em **[7] Ajustes & diagnóstico** (`[e]` English, `[p]` Português (Brasil), `[l]` alternar). Ordem de prioridade:
 
 1. `OMAYT_LANG` (`en`, `pt`, `fr`, além de `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), que sempre tem prioridade;
-2. o idioma salvo com **`l`** em **[7] Ajustes & diagnóstico**;
-3. a locale do sistema (`LANG` / `LC_MESSAGES`), então um desktop em português já abre nesse idioma;
-4. inglês caso contrário.
+2. o idioma salvo em **[7] Ajustes & diagnóstico** (`~/.config/omayt/settings.json`);
+3. o **idioma do Omarchy** (`~/.config/omarchy/language` — se estiver em `pt-BR`, começa em português; se estiver em inglês, começa em inglês);
+4. a locale do sistema (`LC_ALL` / `LC_MESSAGES` / `LANG`);
+5. inglês caso contrário.
 
 ```bash
 # Apenas um lançamento, sem alterar o ajuste salvo
@@ -189,7 +199,8 @@ OMAYT_LANG=fr omayt
 | Atalho | Ação |
 | :--- | :--- |
 | **`Enter`** | Assistir no **`mpv`** *(ou tocar no Cava no Modo Música; busca na 1ª linha `` / carrega +30 na última linha `󰐕`)* |
-| **`Ctrl+S`** | **Pesquisar no YouTube** o termo digitado na barra superior *(30 resultados)* |
+| **`Ctrl+S`** | **Pesquisar no YouTube** o termo digitado na barra superior *(30 resultados; suporta `canal/` e `canal/termo`)* |
+| **`Alt+F`** *(ou `Ctrl+O`)* | **Alterar filtro de pesquisa** *(Relevância, Hoje, Semana, Mês, Ano, Mais vistos, Curtos, Médios, Longos, Ao vivo)* |
 | **`Alt+M`** *(ou `Ctrl+E`)* | **Carregar +30 resultados** para a busca atual *(paginação 30 em 30)* |
 | **`Alt+I`** *(ou `Ctrl+T`)* | Assistir **dentro do terminal** em pixels reais (`--vo=sixel` / `--vo=kitty`) |
 | **`Alt+B`** | Assistir dentro do terminal em **blocos TrueColor** (`--vo=tct`) |
