@@ -4,20 +4,20 @@
 
 **Un client YouTube de terminal rapide et visuel, sans API — conçu pour l'écosystème [Omarchy Linux](https://omarchy.org).**
 
-[![Version](https://img.shields.io/badge/version-v1.3.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
+[![Version](https://img.shields.io/badge/version-v1.4.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
 [![Platform](https://img.shields.io/badge/platform-Omarchy%20%7C%20Arch%20Linux-a6e3a1?style=for-the-badge)](https://omarchy.org)
 [![Python](https://img.shields.io/badge/python-Zero%20pip%20deps-94e2d5?style=for-the-badge)](./omayt)
 [![Graphics](https://img.shields.io/badge/thumbnails-Sixel%20HD%20%C2%B7%20Kitty-f5c2e7?style=for-the-badge)](./omayt)
 [![Audio](https://img.shields.io/badge/audio-Cava%20FFT%2060%20FPS-fab387?style=for-the-badge)](./omayt)
 [![License](https://img.shields.io/badge/license-MIT-f9e2af?style=for-the-badge)](./LICENSE)
 
-[Points forts](#-ce-qui-le-rend-bon) • [Modes de lecture](#-4-modes-de-lecture) • [Installation](#-dépendances--installation) • [CLI](#-utilisation-cli) • [Raccourcis](#️-raccourcis) • [Stockage](#️-stockage-local)
+[Points forts](#-ce-qui-le-rend-bon) • [Captures](#️-captures-décran) • [Nouveautés](#-nouveautés-de-la-v140) • [Modes de lecture](#-4-modes-de-lecture) • [Installation](#-dépendances--installation) • [CLI](#-utilisation-cli) • [Raccourcis](#️-raccourcis) • [Stockage](#️-stockage-local)
 
 <br />
 
-<img src="assets/preview.png" alt="omayt v1.3.0 — Menu principal sur Omarchy Linux avec le thème Catppuccin" width="100%" />
+<img src="assets/preview.png" alt="omayt v1.4.0 — Menu principal sur Omarchy Linux avec le thème Catppuccin" width="100%" />
 
-*Menu principal interactif d'`omayt v1.3.0` exécuté dans une fenêtre flottante sur Hyprland / Omarchy avec le thème Catppuccin, synchronisé automatiquement.*
+*Menu principal interactif d'`omayt v1.4.0` exécuté dans une fenêtre flottante sur Hyprland / Omarchy avec le thème Catppuccin, synchronisé automatiquement.*
 
 </div>
 
@@ -34,6 +34,37 @@
 | **Zéro blocage `HTTP 403`** | Protection en 3 couches (*Anti-403*) avec le contournement du profil `tv_samsung`, `Ad-Wait Guard` et reconnexion automatique. |
 | **Zéro saccade AV1 sur le CPU** | Exclut les flux AV1 (`[vcodec!^=av01]`) et privilégie **H.264 / VP9** avec décodage **VA-API** sur le GPU. |
 | **Zéro `cava` externe nécessaire** | Un visualiseur de spectre **FFT Radix-2** à **60 FPS**, intégré directement au lecteur audio. |
+
+---
+
+## 🚀 Démarrage rapide
+
+```bash
+git clone https://github.com/sabb4th/omayt.git && cd omayt && ./install.sh
+omayt                      # menu interactif
+omayt "omarchy linux"      # recherche directe
+omayt "raimundo/"          # toutes les vidéos d'une chaîne
+omayt --lang en            # force la langue de l'interface (en / pt / fr)
+```
+
+## 🖼️ Captures d'écran
+
+`omayt` lit le **thème Omarchy actif** au démarrage : le menu suit le thème que vous choisissez, sans aucune configuration.
+
+| | |
+| :---: | :---: |
+| <img src="assets/preview.png" alt="Catppuccin" width="100%" /><br/>**Catppuccin** | <img src="assets/screenshot-catppuccin-latte.png" alt="Catppuccin Latte" width="100%" /><br/>**Catppuccin Latte** |
+| <img src="assets/screenshot-earth.png" alt="Earth" width="100%" /><br/>**Earth** | <img src="assets/screenshot-jade-horse.png" alt="Jade Horse" width="100%" /><br/>**Jade Horse** |
+| <img src="assets/screenshot-gruvbox.png" alt="Gruvbox" width="100%" /><br/>**Gruvbox** | |
+
+> Les captures ont été réalisées avec la `v1.3.0` et l'interface en portugais ; depuis la `v1.4.0`, toute l'interface suit la langue choisie (English, Português ou Français).
+
+## 🆕 Nouveautés de la v1.4.0
+
+- **Interface entièrement en anglais :** libellés, modales, aperçus, bandeaux des lecteurs et `--help` suivent la langue choisie — y compris les vidéos en cache (`AO VIVO` → `LIVE`, `Sem título` → `Untitled`).
+- **Langue partout :** détection de la langue d'Omarchy, `--lang en|fr|pt`, `OMAYT_LANG` et `[e]` / `[p]` / `[r]` / `[l]` dans les Paramètres, propagée à `fzf`, `mpv` et `yt-dlp`.
+- **Recherche par chaîne :** `nom/` liste les vidéos d'une chaîne, `nom/sujet` cherche dedans, avec pagination +30.
+- **Filtres de recherche :** `Alt+F` (ou `--filter`) — Aujourd'hui, Cette semaine, Ce mois-ci, Cette année, Les plus vues, Courtes, Moyennes, Longues, En direct.
 
 ---
 

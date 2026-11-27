@@ -4,20 +4,20 @@
 
 **A fast, visual terminal YouTube client with no API — built for the [Omarchy Linux](https://omarchy.org) ecosystem.**
 
-[![Version](https://img.shields.io/badge/version-v1.3.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
+[![Version](https://img.shields.io/badge/version-v1.4.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
 [![Platform](https://img.shields.io/badge/platform-Omarchy%20%7C%20Arch%20Linux-a6e3a1?style=for-the-badge)](https://omarchy.org)
 [![Python](https://img.shields.io/badge/python-Zero%20pip%20deps-94e2d5?style=for-the-badge)](./omayt)
 [![Graphics](https://img.shields.io/badge/thumbnails-Sixel%20HD%20%C2%B7%20Kitty-f5c2e7?style=for-the-badge)](./omayt)
 [![Audio](https://img.shields.io/badge/audio-Cava%20FFT%2060%20FPS-fab387?style=for-the-badge)](./omayt)
 [![License](https://img.shields.io/badge/license-MIT-f9e2af?style=for-the-badge)](./LICENSE)
 
-[Highlights](#-what-makes-it-good) • [Playback modes](#-4-playback-modes) • [Installation](#-dependencies--installation) • [CLI](#-how-to-use-cli) • [Shortcuts](#-shortcuts) • [Storage](#-local-storage)
+[Highlights](#-what-makes-it-good) • [Screenshots](#-screenshots) • [What's new](#-whats-new-in-v140) • [Playback modes](#-4-playback-modes) • [Installation](#-dependencies--installation) • [CLI](#-how-to-use-cli) • [Shortcuts](#-shortcuts) • [Storage](#-local-storage)
 
 <br />
 
-<img src="assets/preview.png" alt="omayt v1.3.0 — Main menu on Omarchy Linux with the Catppuccin theme" width="100%" />
+<img src="assets/preview.png" alt="omayt v1.4.0 — Main menu on Omarchy Linux with the Catppuccin theme" width="100%" />
 
-*Interactive main menu of `omayt v1.3.0` running in a floating window on Hyprland / Omarchy with the Catppuccin theme, synced automatically.*
+*Interactive main menu of `omayt v1.4.0` running in a floating window on Hyprland / Omarchy with the Catppuccin theme, synced automatically.*
 
 </div>
 
@@ -34,6 +34,37 @@
 | **Zero `HTTP 403` blocks** | 3-layer protection (*Anti-403*) with the `tv_samsung` profile bypass, `Ad-Wait Guard` and auto-reconnect. |
 | **Zero AV1 stutter on the CPU** | Excludes AV1 streams (`[vcodec!^=av01]`) and prioritises **H.264 / VP9** with **VA-API** decoding on the GPU. |
 | **Zero external `cava` needed** | A **Radix-2 FFT** spectrum visualiser at **60 FPS**, embedded directly in the audio player. |
+
+---
+
+## 🚀 Quick start
+
+```bash
+git clone https://github.com/sabb4th/omayt.git && cd omayt && ./install.sh
+omayt                      # interactive menu
+omayt "omarchy linux"      # search directly
+omayt "raimundo/"          # every video of a channel
+omayt --lang en            # force the interface language (en / pt / fr)
+```
+
+## 🖼️ Screenshots
+
+`omayt` reads the active **Omarchy theme** at startup, so the menu follows whatever theme you pick — no configuration needed.
+
+| | |
+| :---: | :---: |
+| <img src="assets/preview.png" alt="Catppuccin" width="100%" /><br/>**Catppuccin** | <img src="assets/screenshot-catppuccin-latte.png" alt="Catppuccin Latte" width="100%" /><br/>**Catppuccin Latte** |
+| <img src="assets/screenshot-earth.png" alt="Earth" width="100%" /><br/>**Earth** | <img src="assets/screenshot-jade-horse.png" alt="Jade Horse" width="100%" /><br/>**Jade Horse** |
+| <img src="assets/screenshot-gruvbox.png" alt="Gruvbox" width="100%" /><br/>**Gruvbox** | |
+
+> Screenshots were captured on `v1.3.0` with the interface in Portuguese; since `v1.4.0` the whole UI follows the selected language (English, Português or Français).
+
+## 🆕 What's new in v1.4.0
+
+- **Complete English interface:** every label, modal, preview, player banner and `--help` text now follows the selected language — including cached videos (`AO VIVO` → `LIVE`, `Sem título` → `Untitled`, localized view counts).
+- **Language everywhere:** Omarchy language detection, `--lang en|fr|pt`, `OMAYT_LANG`, and `[e]` / `[p]` / `[r]` / `[l]` in Settings. The language is also propagated to `fzf`, `mpv` and `yt-dlp` subprocesses.
+- **Channel search:** `name/` lists a channel's videos, `name/topic` searches inside it, with +30 pagination.
+- **Search filters:** `Alt+F` (or `--filter`) — Today, This week, This month, This year, Most viewed, Short, Medium, Long, Live.
 
 ---
 
