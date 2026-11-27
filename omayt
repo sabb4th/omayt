@@ -29,6 +29,7 @@ import time
 import tty
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,7 @@ THUMBS_DIR = CACHE_DIR / "thumbs_hd"
 VIDEOS_DB_FILE = CACHE_DIR / "videos_db.json"
 LAST_LIST_FILE = CACHE_DIR / "last_list.json"
 STATE_FILE = CACHE_DIR / "state.json"
+CHANNEL_CACHE_FILE = CACHE_DIR / "channel_cache.json"
 YTDL_WRAPPER_PATH = CACHE_DIR / "omayt-ytdl"
 
 CONFIG_DIR = _resolve_writable_dir(
@@ -72,7 +74,7 @@ SEARCH_HIST_FILE = CONFIG_DIR / "search_history.json"
 DOWNLOAD_DIR = Path.home() / "Videos" / "omayt"
 
 # ============================================================================
-# 1. UI LANGUAGE (OMAYT_LANG > Settings > system locale > English)
+# 1. UI LANGUAGE (OMAYT_LANG > Settings > Omarchy > system locale > English)
 # ============================================================================
 
 UI_LANGS = ("en", "fr", "pt")
@@ -81,7 +83,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 
 def _lang_code(raw: str) -> str | None:
-    """Extracts a supported language code from a locale-ish string ("fr_FR.UTF-8" -> "fr")."""
+    """Extracts a supported language code from a locale-ish string ("pt-BR" / "fr_FR.UTF-8" -> "pt" / "fr")."""
     code = raw.strip().lower().replace("_", "-").split(".")[0].split("@")[0].split("-")[0]
     return code if code in UI_LANGS else None
 
@@ -103,6 +105,17 @@ def _saved_ui_lang() -> str | None:
     return lang if lang in UI_LANGS else None
 
 
+def _omarchy_ui_lang() -> str | None:
+    """Reads Omarchy's configured UI language (~/.config/omarchy/language)."""
+    cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    lang_file = cfg_home / "omarchy" / "language"
+    try:
+        raw = lang_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return _lang_code(raw) if raw else None
+
+
 def _locale_ui_lang() -> str | None:
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         code = _lang_code(os.environ.get(var) or "")
@@ -112,13 +125,16 @@ def _locale_ui_lang() -> str | None:
 
 
 def _resolve_ui_lang() -> tuple[str, str]:
-    """Returns (language, source) with source in {"env", "settings", "locale", "default"}."""
+    """Returns (language, source) with source in {"env", "settings", "omarchy", "locale", "default"}."""
     env = _env_ui_lang()
     if env:
         return env, "env"
     saved = _saved_ui_lang()
     if saved:
         return saved, "settings"
+    omarchy_lang = _omarchy_ui_lang()
+    if omarchy_lang:
+        return omarchy_lang, "omarchy"
     locale_lang = _locale_ui_lang()
     if locale_lang:
         return locale_lang, "locale"
@@ -760,9 +776,393 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
 # ============================================================================
 
 
+SEARCH_FILTERS: tuple[dict[str, str], ...] = (
+    {
+        "id": "all",
+        "key": "0",
+        "icon": "󰍉",
+        "sp": "",
+        "en": "Relevance (Default)",
+        "fr": "Pertinence (défaut)",
+        "pt": "Relevância (padrão)",
+        "short_en": "Default",
+        "short_fr": "Défaut",
+        "short_pt": "Padrão",
+    },
+    {
+        "id": "today",
+        "key": "1",
+        "icon": "󰃭",
+        "sp": "EgIIAg%3D%3D",
+        "en": "Today",
+        "fr": "Aujourd’hui",
+        "pt": "Hoje",
+        "short_en": "Today",
+        "short_fr": "Aujourd’hui",
+        "short_pt": "Hoje",
+    },
+    {
+        "id": "week",
+        "key": "2",
+        "icon": "󰃮",
+        "sp": "EgIIAw%3D%3D",
+        "en": "This week",
+        "fr": "Cette semaine",
+        "pt": "Esta semana",
+        "short_en": "This week",
+        "short_fr": "Semaine",
+        "short_pt": "Esta semana",
+    },
+    {
+        "id": "month",
+        "key": "3",
+        "icon": "󰃯",
+        "sp": "EgIIBA%3D%3D",
+        "en": "This month",
+        "fr": "Ce mois-ci",
+        "pt": "Este mês",
+        "short_en": "This month",
+        "short_fr": "Ce mois",
+        "short_pt": "Este mês",
+    },
+    {
+        "id": "year",
+        "key": "4",
+        "icon": "󰃰",
+        "sp": "EgIIBQ%3D%3D",
+        "en": "This year",
+        "fr": "Cette année",
+        "pt": "Este ano",
+        "short_en": "This year",
+        "short_fr": "Cette année",
+        "short_pt": "Este ano",
+    },
+    {
+        "id": "views",
+        "key": "5",
+        "icon": "󰈈",
+        "sp": "CAMSAhAB",
+        "en": "Most viewed",
+        "fr": "Les plus vues",
+        "pt": "Mais vistos",
+        "short_en": "Most viewed",
+        "short_fr": "Plus vues",
+        "short_pt": "Mais vistos",
+    },
+    {
+        "id": "short",
+        "key": "6",
+        "icon": "󰔟",
+        "sp": "EgIYBA%3D%3D",
+        "en": "Short (< 3 min)",
+        "fr": "Courtes (< 3 min)",
+        "pt": "Curtos (< 3 min)",
+        "short_en": "Short",
+        "short_fr": "Courtes",
+        "short_pt": "Curtos",
+    },
+    {
+        "id": "medium",
+        "key": "7",
+        "icon": "󰥔",
+        "sp": "EgIYBQ%3D%3D",
+        "en": "Medium (3–20 min)",
+        "fr": "Moyennes (3–20 min)",
+        "pt": "Médios (3–20 min)",
+        "short_en": "Medium",
+        "short_fr": "Moyennes",
+        "short_pt": "Médios",
+    },
+    {
+        "id": "long",
+        "key": "8",
+        "icon": "󰦖",
+        "sp": "EgIYAg%3D%3D",
+        "en": "Long (> 20 min)",
+        "fr": "Longues (> 20 min)",
+        "pt": "Longos (> 20 min)",
+        "short_en": "Long",
+        "short_fr": "Longues",
+        "short_pt": "Longos",
+    },
+    {
+        "id": "live",
+        "key": "9",
+        "icon": "󰑋",
+        "sp": "EgJAAQ%3D%3D",
+        "en": "Live",
+        "fr": "En direct",
+        "pt": "Ao vivo",
+        "short_en": "Live",
+        "short_fr": "Direct",
+        "short_pt": "Ao vivo",
+    },
+)
+SEARCH_FILTER_IDS = tuple(f["id"] for f in SEARCH_FILTERS)
+SEARCH_FILTERS_BY_ID = {f["id"]: f for f in SEARCH_FILTERS}
+_CHANNEL_MEM_CACHE: dict[str, dict[str, str]] = {}
+
+
+def normalize_search_filter(code: str | None) -> str:
+    raw = (code or "").strip().lower()
+    return raw if raw in SEARCH_FILTERS_BY_ID else "all"
+
+
+def get_search_filter_meta(code: str | None) -> dict[str, str]:
+    return SEARCH_FILTERS_BY_ID[normalize_search_filter(code)]
+
+
+def get_search_filter_label(code: str | None, short: bool = False) -> str:
+    meta = get_search_filter_meta(code)
+    if short:
+        return tr(meta["short_en"], meta["short_fr"], meta["short_pt"])
+    return tr(meta["en"], meta["fr"], meta["pt"])
+
+
+def next_search_filter(code: str | None) -> str:
+    cur = normalize_search_filter(code)
+    idx = SEARCH_FILTER_IDS.index(cur)
+    return SEARCH_FILTER_IDS[(idx + 1) % len(SEARCH_FILTER_IDS)]
+
+
+def parse_channel_query(raw_query: str) -> tuple[str, str] | None:
+    """
+    Parses `<channel>/` or `<channel>/<term>` channel-scoped queries.
+    Returns `(channel_spec, sub_query)` or `None` for normal searches and URLs.
+    """
+    q = (raw_query or "").strip()
+    if not q or "/" not in q:
+        return None
+    q_low = q.lower()
+    if "://" in q_low or q_low.startswith(
+        (
+            "http://",
+            "https://",
+            "www.",
+            "youtube.com/",
+            "m.youtube.com/",
+            "music.youtube.com/",
+            "youtu.be/",
+        )
+    ):
+        return None
+    channel_spec, sub_query = q.split("/", 1)
+    channel_spec = channel_spec.strip()
+    sub_query = sub_query.strip()
+    if not channel_spec:
+        return None
+    return (channel_spec, sub_query)
+
+
+def _duration_to_seconds(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        sec = int(value)
+        return sec if sec >= 0 else None
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt or txt.upper() in ("LIVE", "DIRECT", "AO VIVO"):
+            return None
+        parts = txt.split(":")
+        if all(p.isdigit() for p in parts) and 2 <= len(parts) <= 3:
+            total = 0
+            for p in parts:
+                total = total * 60 + int(p)
+            return total
+    return None
+
+
+def _ytdlp_extract_flat(target: str, playlist_end: int | None = None) -> dict[str, Any]:
+    """Extracts flat playlist/search info via yt_dlp module with CLI subprocess fallback."""
+    try:
+        import yt_dlp  # type: ignore
+
+        ydl_opts: dict[str, Any] = {
+            "extract_flat": "in_playlist",
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+            "extractor_args": EXTRACTOR_ARGS_DICT,
+        }
+        if playlist_end is not None and playlist_end > 0:
+            ydl_opts["playlistend"] = int(playlist_end)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(target, download=False)
+            if isinstance(info, dict):
+                return info
+    except Exception:
+        cmd = [
+            YTDLP_BIN,
+            "--extractor-args",
+            EXTRACTOR_ARGS_CLI,
+            "--flat-playlist",
+            "-J",
+            "--no-warnings",
+        ]
+        if playlist_end is not None and playlist_end > 0:
+            cmd.extend(["--playlist-end", str(int(playlist_end))])
+        cmd.append(target)
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            try:
+                info = json.loads(proc.stdout)
+                if isinstance(info, dict):
+                    return info
+            except Exception:
+                pass
+    return {}
+
+
+def _norm_channel_token(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").strip().lower().lstrip("@"))
+
+
+def resolve_youtube_channel(channel_spec: str) -> dict[str, str] | None:
+    """
+    Resolves a channel name, @handle or UC... channel ID into
+    `{"id": "UC...", "url": "https://www.youtube.com/channel/UC...", "title": "...", "handle": "@..."}`.
+    Uses in-memory + disk cache so pagination and repeated queries are instant.
+    """
+    spec = (channel_spec or "").strip()
+    if not spec:
+        return None
+    cache_key = spec.lower()
+
+    if cache_key in _CHANNEL_MEM_CACHE:
+        return dict(_CHANNEL_MEM_CACHE[cache_key])
+
+    disk_cache = load_json_file(CHANNEL_CACHE_FILE, {})
+    if isinstance(disk_cache, dict) and isinstance(disk_cache.get(cache_key), dict):
+        cached = disk_cache[cache_key]
+        if cached.get("url"):
+            _CHANNEL_MEM_CACHE[cache_key] = dict(cached)
+            return dict(cached)
+
+    def _store(entry: dict[str, str]) -> dict[str, str]:
+        _CHANNEL_MEM_CACHE[cache_key] = dict(entry)
+        try:
+            cache_obj = load_json_file(CHANNEL_CACHE_FILE, {})
+            if not isinstance(cache_obj, dict):
+                cache_obj = {}
+            cache_obj[cache_key] = dict(entry)
+            if len(cache_obj) > 100:
+                for old_k in list(cache_obj.keys())[:-100]:
+                    cache_obj.pop(old_k, None)
+            save_json_file(CHANNEL_CACHE_FILE, cache_obj)
+        except Exception:
+            pass
+        return dict(entry)
+
+    # 1. Direct UC... channel ID
+    if re.fullmatch(r"UC[a-zA-Z0-9_-]{22}", spec):
+        return _store(
+            {
+                "id": spec,
+                "url": f"https://www.youtube.com/channel/{spec}",
+                "title": spec,
+                "handle": "",
+            }
+        )
+
+    # 2. Explicit @handle: try direct URL first, fall back to YouTube channel search on 404/empty
+    if spec.startswith("@"):
+        handle_url = f"https://www.youtube.com/{urllib.parse.quote(spec, safe='@._-')}/videos"
+        info = _ytdlp_extract_flat(handle_url, playlist_end=1)
+        cid = str(info.get("channel_id") or "")
+        entries = info.get("entries") or []
+        if cid.startswith("UC") or entries:
+            base_url = (
+                f"https://www.youtube.com/channel/{cid}"
+                if cid.startswith("UC")
+                else f"https://www.youtube.com/{urllib.parse.quote(spec, safe='@._-')}"
+            )
+            return _store(
+                {
+                    "id": cid,
+                    "url": base_url,
+                    "title": str(info.get("channel") or info.get("uploader") or spec),
+                    "handle": str(info.get("uploader_id") or spec),
+                }
+            )
+
+    # 3. YouTube Channels search (sp=EgIQAg%3D%3D)
+    search_term = spec.lstrip("@").strip()
+    if not search_term:
+        return None
+    search_url = (
+        f"https://www.youtube.com/results?search_query="
+        f"{urllib.parse.quote_plus(search_term)}&sp=EgIQAg%3D%3D"
+    )
+    info = _ytdlp_extract_flat(search_url, playlist_end=8)
+    raw_entries = info.get("entries") or []
+
+    candidates: list[dict[str, str]] = []
+    for item in raw_entries:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("channel_id") or item.get("id") or "")
+        if not cid.startswith("UC"):
+            continue
+        title = str(item.get("channel") or item.get("title") or item.get("uploader") or search_term).strip()
+        handle = str(item.get("uploader_id") or "").strip()
+        candidates.append(
+            {
+                "id": cid,
+                "url": f"https://www.youtube.com/channel/{cid}",
+                "title": title,
+                "handle": handle,
+            }
+        )
+
+    if not candidates:
+        return None
+
+    target_low = search_term.lower()
+    target_norm = _norm_channel_token(search_term)
+    chosen = None
+    # Tier 1: exact match on handle or channel title
+    for cand in candidates:
+        h_low = cand["handle"].lstrip("@").lower()
+        t_low = cand["title"].lower()
+        if h_low == target_low or t_low == target_low:
+            chosen = cand
+            break
+    # Tier 2: exact normalized token match
+    if chosen is None and target_norm:
+        for cand in candidates:
+            if (
+                (cand["handle"] and _norm_channel_token(cand["handle"]) == target_norm)
+                or _norm_channel_token(cand["title"]) == target_norm
+            ):
+                chosen = cand
+                break
+    # Tier 3: title or handle starts with the searched term (preserving YouTube relevance order)
+    if chosen is None and target_norm:
+        for cand in candidates:
+            h_low = cand["handle"].lstrip("@").lower()
+            t_low = cand["title"].lower()
+            if (
+                t_low.startswith(target_low)
+                or h_low.startswith(target_low)
+                or _norm_channel_token(cand["title"]).startswith(target_norm)
+            ):
+                chosen = cand
+                break
+    if chosen is None:
+        chosen = candidates[0]
+
+    return _store(chosen)
+
+
 def format_duration(seconds: Any) -> str:
     if not seconds:
-        return "LIVE"
+        return tr("LIVE", "DIRECT", "AO VIVO")
     if isinstance(seconds, str):
         return seconds
     try:
@@ -792,60 +1192,146 @@ def format_views(count: Any) -> str:
     return f"{n:,}".replace(",", ".")
 
 
+def _apply_channel_local_filter(
+    videos: list[dict[str, Any]],
+    search_filter: str,
+) -> list[dict[str, Any]]:
+    flt = normalize_search_filter(search_filter)
+    if flt == "views":
+        return sorted(
+            videos,
+            key=lambda v: (
+                int(v["views_raw"])
+                if isinstance(v.get("views_raw"), (int, float))
+                else -1
+            ),
+            reverse=True,
+        )
+    if flt == "short":
+        return [
+            v
+            for v in videos
+            if isinstance(v.get("duration_raw"), int) and 0 < v["duration_raw"] < 180
+        ]
+    if flt == "medium":
+        return [
+            v
+            for v in videos
+            if isinstance(v.get("duration_raw"), int) and 180 <= v["duration_raw"] <= 1200
+        ]
+    if flt == "long":
+        return [
+            v
+            for v in videos
+            if isinstance(v.get("duration_raw"), int) and v["duration_raw"] > 1200
+        ]
+    if flt == "live":
+        return [
+            v
+            for v in videos
+            if v.get("duration_raw") is None
+            or str(v.get("duration") or "").upper() in ("LIVE", "DIRECT", "AO VIVO")
+        ]
+    return videos
+
+
+def format_search_header_note(
+    query: str,
+    count: int,
+    search_filter: str = "all",
+    channel_title: str = "",
+    channel_subquery: str = "",
+    is_last: bool = False,
+    reached_end: bool = False,
+) -> str:
+    vid_word = tr("video", "vidéo", "vídeo")
+    vid_cnt = f"{count} {vid_word}{'s' if count != 1 else ''}"
+    flt = normalize_search_filter(search_filter)
+    flt_tag = (
+        f" • [{tr('Filter:', 'Filtre :', 'Filtro:')} {get_search_filter_label(flt, short=True)}]"
+        if flt != "all"
+        else ""
+    )
+    end_tag = f" ({tr('end', 'fin', 'fim')})" if reached_end else ""
+    if channel_title:
+        ch_lbl = tr("Channel:", "Chaîne :", "Canal:")
+        sub_part = f" / {channel_subquery}" if channel_subquery else ""
+        return f"{ch_lbl} {channel_title}{sub_part} ({query}) • {vid_cnt}{flt_tag}{end_tag}"
+    prefix = (
+        tr("Last search:", "Dernière recherche :", "Última busca:")
+        if is_last
+        else tr("Search:", "Recherche :", "Busca:")
+    )
+    return f"{prefix} {query} • {vid_cnt}{flt_tag}{end_tag}"
+
+
 def search_youtube(
     query: str,
     max_results: int = SEARCH_PAGE_SIZE,
     record_history: bool = True,
     prefetch: bool = True,
+    search_filter: str = "all",
 ) -> list[dict[str, Any]]:
     ensure_dirs()
     query = query.strip()
     if not query:
         return []
 
+    flt = normalize_search_filter(search_filter)
     if record_history:
         record_search_history(query)
+
     entries_raw: list[dict[str, Any]] = []
+    channel_parsed = parse_channel_query(query)
+    resolved_channel_id = ""
+    resolved_channel_title = ""
+    channel_spec = ""
+    channel_subquery = ""
+    root_info: dict[str, Any] = {}
 
-    try:
-        import yt_dlp  # type: ignore
-
-        ydl_opts = {
-            "extract_flat": "in_playlist",
-            "skip_download": True,
-            "quiet": True,
-            "no_warnings": True,
-            "extractor_args": EXTRACTOR_ARGS_DICT,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
-            if isinstance(info, dict):
-                entries_raw = info.get("entries") or []
-    except Exception:
-        proc = subprocess.run(
-            [
-                YTDLP_BIN,
-                "--extractor-args",
-                EXTRACTOR_ARGS_CLI,
-                "--flat-playlist",
-                "-J",
-                "--no-warnings",
-                f"ytsearch{max_results}:{query}",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        if proc.returncode == 0 and proc.stdout:
-            try:
-                info = json.loads(proc.stdout)
-                entries_raw = info.get("entries") or []
-            except Exception:
-                entries_raw = []
+    if channel_parsed is not None:
+        channel_spec, channel_subquery = channel_parsed
+        ch_info = resolve_youtube_channel(channel_spec)
+        if ch_info is not None:
+            resolved_channel_id = ch_info.get("id") or ""
+            resolved_channel_title = ch_info.get("title") or channel_spec
+            base_url = ch_info["url"].rstrip("/")
+            if channel_subquery:
+                target_url = f"{base_url}/search?query={urllib.parse.quote_plus(channel_subquery)}"
+            else:
+                target_url = f"{base_url}/videos"
+            # Over-fetch when filtering locally by duration/live or channel sub-search (playlists skipped)
+            fetch_limit = max_results
+            if flt in ("short", "medium", "long", "live"):
+                fetch_limit = max(max_results * 3, 90)
+            elif channel_subquery or flt == "views":
+                fetch_limit = max(max_results + 20, max_results)
+            root_info = _ytdlp_extract_flat(target_url, playlist_end=fetch_limit)
+            entries_raw = root_info.get("entries") or []
+            if root_info.get("channel") or root_info.get("uploader"):
+                resolved_channel_title = str(
+                    root_info.get("channel") or root_info.get("uploader") or resolved_channel_title
+                ).strip()
+            if not resolved_channel_id and root_info.get("channel_id"):
+                resolved_channel_id = str(root_info.get("channel_id"))
+    else:
+        flt_meta = get_search_filter_meta(flt)
+        sp = flt_meta["sp"]
+        if sp:
+            search_url = (
+                f"https://www.youtube.com/results?search_query="
+                f"{urllib.parse.quote_plus(query)}&sp={sp}"
+            )
+            root_info = _ytdlp_extract_flat(search_url, playlist_end=max_results + 12)
+            entries_raw = root_info.get("entries") or []
+        else:
+            root_info = _ytdlp_extract_flat(f"ytsearch{max_results}:{query}")
+            entries_raw = root_info.get("entries") or []
 
     results: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     db = load_json_file(VIDEOS_DB_FILE, {})
+    untitled = tr("Untitled", "Sans titre", "Sem título")
 
     for item in entries_raw:
         if not isinstance(item, dict):
@@ -853,15 +1339,22 @@ def search_youtube(
         vid = item.get("id") or ""
         if not vid or len(vid) != 11 or vid in seen_ids:
             continue
+        # Enforce strict channel exclusivity when in channel/ mode
+        if channel_parsed is not None and resolved_channel_id:
+            item_cid = str(item.get("channel_id") or "")
+            if item_cid and item_cid != resolved_channel_id:
+                continue
         seen_ids.add(vid)
 
-        title = (item.get("title") or "Untitled").replace("\t", " ").replace("\n", " ").strip()
+        title = (item.get("title") or untitled).replace("\t", " ").replace("\n", " ").strip()
         channel = (
             item.get("channel")
             or item.get("uploader")
+            or resolved_channel_title
             or item.get("channel_id")
             or "YouTube"
         ).replace("\t", " ").strip()
+        dur_raw = _duration_to_seconds(item.get("duration") or item.get("duration_string"))
         duration = format_duration(item.get("duration") or item.get("duration_string"))
         views_raw = item.get("view_count")
         views_fmt = format_views(views_raw)
@@ -881,25 +1374,39 @@ def search_youtube(
             "id": vid,
             "title": title,
             "channel": channel,
+            "channel_id": str(item.get("channel_id") or resolved_channel_id or ""),
             "duration": duration,
+            "duration_raw": dur_raw,
             "views": views_fmt,
             "views_raw": views_raw,
             "url": url,
             "thumb_url": thumb_url,
             "description": desc,
             "query": query,
+            "filter": flt,
             "timestamp": time.strftime("%d/%m/%Y %H:%M"),
         }
         results.append(video_obj)
         db[vid] = video_obj
+
+    if channel_parsed is not None and flt != "all":
+        results = _apply_channel_local_filter(results, flt)
+
+    if len(results) > max_results:
+        results = results[:max_results]
 
     save_json_file(VIDEOS_DB_FILE, db)
     save_json_file(LAST_LIST_FILE, results)
     save_json_file(
         STATE_FILE,
         {
-            "mode": "search",
+            "mode": "channel" if channel_parsed is not None else "search",
             "query": query,
+            "filter": flt,
+            "channel_spec": channel_spec,
+            "channel_title": resolved_channel_title,
+            "channel_id": resolved_channel_id,
+            "channel_subquery": channel_subquery,
             "count": len(results),
             "limit": max_results,
             "has_more": bool(results),
@@ -920,19 +1427,23 @@ def load_more_youtube_results(
     existing_videos: list[dict[str, Any]],
     current_limit: int,
     page_size: int = SEARCH_PAGE_SIZE,
+    search_filter: str = "all",
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Loads `page_size` more results for the current search, keeping the displayed order."""
     query = query.strip()
     if not query:
         return (list(existing_videos), current_limit, 0)
 
+    flt = normalize_search_filter(search_filter)
     new_limit = max(current_limit, len(existing_videos)) + page_size
     fetched = search_youtube(
         query,
         max_results=new_limit,
         record_history=False,
         prefetch=False,
+        search_filter=flt,
     )
+    latest_state = load_json_file(STATE_FILE, {})
 
     seen_ids = {v.get("id") for v in existing_videos if v.get("id")}
     merged = list(existing_videos)
@@ -949,8 +1460,13 @@ def load_more_youtube_results(
     save_json_file(
         STATE_FILE,
         {
-            "mode": "search",
+            "mode": latest_state.get("mode", "search"),
             "query": query,
+            "filter": flt,
+            "channel_spec": latest_state.get("channel_spec", ""),
+            "channel_title": latest_state.get("channel_title", ""),
+            "channel_id": latest_state.get("channel_id", ""),
+            "channel_subquery": latest_state.get("channel_subquery", ""),
             "count": len(merged),
             "limit": new_limit,
             "has_more": added > 0,
@@ -1024,9 +1540,10 @@ def format_tui_rows(
         f"{rst}{c_mut}{search_hint}{rst}"
     )
 
+    untitled = tr("Untitled", "Sans titre", "Sem título")
     for idx, v in enumerate(videos, 1):
         vid = v.get("id", "")
-        title = v.get("title", "Untitled")
+        title = v.get("title") or untitled
         if len(title) > 52:
             title = title[:49] + "..."
         channel = v.get("channel", "YouTube")
@@ -1088,6 +1605,8 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if item_id == "__MORE__":
         state = load_json_file(STATE_FILE, {})
         q_saved = state.get("query") or current_query.strip() or tr("your term", "votre terme", 'seu termo')
+        ch_saved = (state.get("channel_title") or "").strip()
+        flt_saved = normalize_search_filter(state.get("filter"))
         loaded_cnt = int(state.get("count") or len(load_json_file(LAST_LIST_FILE, [])))
         next_start = loaded_cnt + 1
         next_end = loaded_cnt + SEARCH_PAGE_SIZE
@@ -1100,6 +1619,9 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         print(f"\n {c_cyn}󰐕{rst} {c_acc}{more_title}{rst}")
         print(f" {sep}")
         print(f"\n {c_acc}  {tr('Search      :', 'Recherche   :', 'Busca       :')}{rst} {c_yel}“{q_saved}”{rst}")
+        if ch_saved:
+            print(f" {c_acc}󰠃  {tr('Channel     :', 'Chaîne      :', 'Canal       :')}{rst} {c_grn}{ch_saved}{rst}")
+        print(f" {c_acc}󰈲  {tr('Filter      :', 'Filtre      :', 'Filtro      :')}{rst} {c_mag}{get_search_filter_label(flt_saved)}{rst}")
         print(f" {c_acc}󰕧  {tr('Loaded      :', 'Chargées    :', 'Carregados  :')}{rst} {c_fg}{loaded_cnt} {tr('videos', 'vidéos', 'vídeos')}{rst}")
         print(f" {c_acc}󰐕  {tr('Next batch  :', 'Prochain lot:', 'Próximo lote:')}{rst} {c_grn}+{SEARCH_PAGE_SIZE} {tr('videos', 'vidéos', 'vídeos')} ({next_start}–{next_end}){rst}")
         print(f"\n {sep}")
@@ -1114,11 +1636,31 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if item_id in ("__SEARCH__", "__HISTORY__") or not item_id:
         search_hist = load_json_file(SEARCH_HIST_FILE, [])
         watch_hist = load_json_file(HISTORY_FILE, [])
+        state = load_json_file(STATE_FILE, {})
+        active_flt = normalize_search_filter(state.get("filter"))
+        flt_meta = get_search_filter_meta(active_flt)
 
         print(f"\n {c_red}󰗃{rst} {c_acc}omayt • Omarchy YouTube TUI{rst} {c_mut}(v{APP_VERSION}){rst}")
         print(f" {sep}")
         if current_query.strip():
-            print(f"\n {c_cyn}  {tr('Ready to search YouTube:', 'Prêt à chercher sur YouTube :', 'Pronto para buscar no YouTube:')}{rst}")
+            ch_parsed = parse_channel_query(current_query.strip())
+            if ch_parsed is not None:
+                ch_spec, ch_sub = ch_parsed
+                if ch_sub:
+                    ready_lbl = tr(
+                        f"Ready to search inside channel “{ch_spec}”:",
+                        f"Prêt à chercher dans la chaîne « {ch_spec} » :",
+                        f"Pronto para buscar dentro do canal “{ch_spec}”:",
+                    )
+                else:
+                    ready_lbl = tr(
+                        f"Ready to list videos from channel “{ch_spec}”:",
+                        f"Prêt à lister les vidéos de la chaîne « {ch_spec} » :",
+                        f"Pronto para listar os vídeos do canal “{ch_spec}”:",
+                    )
+                print(f"\n {c_grn}󰠃  {ready_lbl}{rst}")
+            else:
+                print(f"\n {c_cyn}  {tr('Ready to search YouTube:', 'Prêt à chercher sur YouTube :', 'Pronto para buscar no YouTube:')}{rst}")
             print(f"    {c_yel}“{current_query.strip()}”{rst}")
             print(f"    {c_grn}↳ {tr(
                 f"Press [Enter] or [Ctrl+S] now to search ({SEARCH_PAGE_SIZE} results)!",
@@ -1129,10 +1671,21 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
             print(f"\n {c_cyn}  {tr('How to search:', 'Comment chercher :', 'Como buscar:')}{rst}")
             print(f"    {c_txt}{tr('1. Type any term in the search bar at the top', '1. Saisissez un terme dans la barre de recherche en haut', '1. Digite um termo na barra de busca no topo')}{rst}")
             print(f"    {c_txt}2. {tr('Press', 'Appuyez sur', 'Pressione')} {c_yel}Enter{rst}{c_txt} {tr('(on this line) or', '(sur cette ligne) ou', '(nesta linha) ou')} {c_yel}Ctrl+S{rst}{c_txt} {tr('(on any line)', '(sur n’importe quelle ligne)', '(em qualquer linha)')}{rst}")
+            print(
+                f"    {c_grn}󰠃 {tr('Channel videos:', 'Vidéos d’une chaîne :', 'Vídeos de um canal:')}{rst} "
+                f"{c_txt}{tr('type', 'tapez', 'digite')} {c_yel}name/{rst} {c_txt}{tr('(e.g. raimundo/) or', '(ex. raimundo/) ou', '(ex.: raimundo/) ou')} {c_yel}name/topic{rst}"
+            )
+
+        print(
+            f"\n {c_mag}󰈲  {tr('Active Filter:', 'Filtre actif :', 'Filtro ativo:')}{rst} "
+            f"{c_fg}{flt_meta['icon']} {get_search_filter_label(active_flt)}{rst} "
+            f"{c_mut}({tr('Alt+F to change', 'Alt+F pour changer', 'Alt+F para alterar')}){rst}"
+        )
 
         print(f"\n {sep}")
         print(f" {c_acc}⌨  {tr('TUI Quick Shortcuts:', 'Raccourcis rapides de la TUI :', 'Atalhos rápidos da TUI:')}{rst}")
         print(f"   {c_yel}Enter{rst}    {tr('Watch video in', 'Regarder la vidéo dans', 'Assistir ao vídeo no')} {c_fg}mpv{rst} ({tr('Wayland Window', 'Fenêtre Wayland', 'Janela Wayland')} • {tr('VA-API GPU', 'GPU VA-API', 'GPU VA-API')})")
+        print(f"   {c_yel}Alt+F{rst}    {tr('Change', 'Changer le', 'Alterar o')} {c_mag}{tr('YouTube search filter', 'filtre de recherche YouTube', 'filtro de busca do YouTube')}{rst} ({tr('date, views, duration, live', 'date, vues, durée, direct', 'data, views, duração, ao vivo')})")
         print(f"   {c_yel}Alt+M{rst}    {tr('Load', 'Charger', 'Carregar')} {c_cyn}+{SEARCH_PAGE_SIZE} {tr('more results', 'résultats de plus', 'resultados')}{rst} {tr('for this search (or', 'pour cette recherche (ou', 'para esta busca (ou')} {c_yel}Ctrl+E{rst})")
         print(f"   {c_yel}Alt+I{rst}    {tr('Watch video', 'Regarder la vidéo', 'Assistir ao vídeo')} {c_grn}{tr('INSIDE the terminal', 'DANS le terminal', 'DENTRO do terminal')}{rst} ({tr('Sixel/Kitty pixels!', 'pixels Sixel/Kitty !', 'pixels Sixel/Kitty!')})")
         print(f"   {c_yel}Alt+B{rst}    {tr('Watch video in terminal in', 'Regarder la vidéo dans le terminal en mode', 'Assistir ao vídeo no terminal em modo')} {c_cyn}{tr('TrueColor Blocks', 'blocs TrueColor', 'blocos TrueColor')}{rst}{tr(' mode (tct)', ' (tct)', ' (tct)')}")
@@ -1174,7 +1727,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if not video:
         video = {
             "id": item_id,
-            "title": f"Video {item_id}",
+            "title": tr(f"Video {item_id}", f"Vidéo {item_id}", f"Vídeo {item_id}"),
             "channel": "YouTube",
             "duration": "—",
             "views": "—",
@@ -1189,7 +1742,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
-    wrapped_title = textwrap.wrap(video.get("title", "Untitled"), width=wrap_w)
+    wrapped_title = textwrap.wrap(video.get("title") or tr("Untitled", "Sans titre", "Sem título"), width=wrap_w)
     for line in wrapped_title[:2]:
         print(f" {c_fg}{line}{rst}")
 
@@ -1663,7 +2216,7 @@ class CavaVisualizerPlayer:
         rst = THEME.reset
 
         inner_w = cols - 6
-        title = self.video.get("title", "Untitled")
+        title = self.video.get("title") or tr("Untitled", "Sans titre", "Sem título")
         if len(title) > inner_w - 4:
             title = title[: inner_w - 7] + "..."
         channel = self.video.get("channel", "YouTube")
@@ -2249,10 +2802,14 @@ def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
             if not nxt:
                 break
             seq += nxt
+            if len(seq) == 2 and seq[1:2] not in (b"[", b"O"):
+                break
             if len(seq) >= 6 or (len(seq) >= 3 and seq[1:2] in (b"[", b"O") and (64 <= nxt[0] <= 126)):
                 break
         if seq == b"\x1b":
             return "ESC"
+        if seq in (b"\x1bf", b"\x1bF"):
+            return "ALT_F"
         if seq in (b"\x1b[A", b"\x1bOA"):
             return "UP"
         if seq in (b"\x1b[B", b"\x1bOB"):
@@ -2271,6 +2828,8 @@ def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
 
     if b == b"\x03":
         return "CTRL_C"
+    if b == b"\x06":
+        return "CTRL_F"
     if b == b"\x15":
         return "CTRL_U"
     if b in (b"\r", b"\n"):
@@ -2372,7 +2931,8 @@ class OmarchyMainMenu:
                 short_q = truncate_plain(last_q, 14)
                 resume_badge = f"“{short_q}” • {len(last_list)}"
             else:
-                resume_badge = f"{len(last_list)} videos"
+                v_word = tr("video", "vidéo", "vídeo")
+                resume_badge = f"{len(last_list)} {v_word}" + ("s" if len(last_list) != 1 else "")
             resume_label = tr("Resume Last Session", "Reprendre la dernière session", 'Retomar a última sessão')
             resume_icon = "󰑈"
             resume_desc = tr(
@@ -2478,8 +3038,9 @@ class OmarchyMainMenu:
                 "label": tr("Settings & Diagnostics", "Paramètres & diagnostics", 'Ajustes & diagnóstico'),
                 "badge": THEME.name,
                 "desc": tr(
-                    "Dependencies, active Omarchy palette, thumbnail cache and VA-API",
-                    "Dépendances, palette Omarchy active, cache des vignettes et VA-API", 'Dependências, paleta Omarchy ativa, cache de miniaturas e VA-API',
+                    "Language (EN/PT), dependencies, active Omarchy palette, cache and VA-API",
+                    "Langue (EN/PT), dépendances, palette Omarchy active, cache et VA-API",
+                    "Idioma (EN/PT), dependências, paleta Omarchy ativa, cache e VA-API",
                 ),
             },
             {
@@ -2755,22 +3316,119 @@ class OmarchyMainMenu:
         sys.stdout.write("\n".join(out))
         sys.stdout.flush()
 
-    def _prompt_search(self, music_mode: bool = False) -> str | None:
-        """Styled YouTube search modal with suggestions from the search history."""
+    def _prompt_search_filter(self, current_filter: str = "all") -> str | None:
+        """Interactive Omarchy-styled search filter picker modal."""
+        assert self.tty_fd is not None
+        active = normalize_search_filter(current_filter)
+        sel = SEARCH_FILTER_IDS.index(active)
+
+        while True:
+            term = shutil.get_terminal_size((100, 32))
+            cols, rows = max(54, term.columns), max(18, term.lines)
+            card_w = max(52, min(cols - 4, 66))
+            inner_w = card_w - 4
+            lm = " " * max(0, (cols - card_w) // 2)
+
+            c_acc = THEME.ansi_fg("accent", bold=True)
+            c_mag = THEME.ansi_fg("magenta", bold=True)
+            c_grn = THEME.ansi_fg("green", bold=True)
+            c_fg = THEME.ansi_fg("bright_foreground", bold=True)
+            c_txt = THEME.ansi_fg("light_foreground")
+            c_yel = THEME.ansi_fg("yellow", bold=True)
+            c_mut = THEME.ansi_fg("muted")
+            c_red = THEME.ansi_fg("red", bold=True)
+            rst = THEME.reset
+            b_col = THEME.ansi_fg("magenta")
+            dim_b = THEME.ansi_fg("muted")
+            sel_bg = THEME.ansi_rgb_bg(*THEME.blend_rgb(THEME.rgb("lighter_background"), THEME.rgb("magenta"), 0.18))
+
+            title_l = f"{c_mag}󰈲 {tr('Search Filter', 'Filtre de recherche', 'Filtro de pesquisa')}{rst}"
+            title_r = f"{c_mut}{tr('Esc: Cancel', 'Échap : annuler', 'Esc: cancelar')}{rst}"
+
+            lines: list[str] = []
+            lines.append(lm + self._box_top(inner_w, title_l, title_r, b_col))
+
+            for idx, flt in enumerate(SEARCH_FILTERS):
+                f_id = flt["id"]
+                f_key = flt["key"]
+                f_icon = flt["icon"]
+                f_lbl = get_search_filter_label(f_id)
+                is_cur = f_id == active
+                is_sel = idx == sel
+                mark = f"{c_grn}✓{rst}" if is_cur else " "
+                if is_sel:
+                    mark_sel = f"{c_grn}✓" if is_cur else " "
+                    left = f"{c_mag}┃ ❯{sel_bg} {c_yel}[{f_key}]{sel_bg} {c_acc}{f_icon}  {c_fg}{f_lbl}"
+                    right = f"{sel_bg}{mark_sel} "
+                    gap = max(1, inner_w - visible_len(left) - visible_len(right))
+                    lines.append(lm + self._box_line(f"{left}{' ' * gap}{right}", inner_w, b_col, bg=sel_bg))
+                else:
+                    left = f"    {c_mut}[{f_key}]{rst} {c_acc}{f_icon}{rst}  {c_txt}{f_lbl}{rst}"
+                    right = f"{mark} "
+                    gap = max(1, inner_w - visible_len(left) - visible_len(right))
+                    lines.append(lm + self._box_line(f"{left}{' ' * gap}{right}", inner_w, b_col))
+
+            lines.append(lm + self._box_div(inner_w, dim_b))
+            hint = (
+                f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Apply', 'Appliquer', 'Aplicar')}{rst}  "
+                f"{c_yel}[↑/↓]{rst} {c_mut}{tr('Move', 'Naviguer', 'Mover')}{rst}  "
+                f"{c_yel}[0-9]{rst} {c_mut}{tr('Quick pick', 'Choix rapide', 'Atalho')}{rst}  "
+                f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Cancel', 'Annuler', 'Cancelar')}{rst}"
+            )
+            if visible_len(hint) > inner_w:
+                hint = (
+                    f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Apply', 'Appliquer', 'Aplicar')}{rst}  "
+                    f"{c_yel}[0-9]{rst} {c_mut}{tr('Pick', 'Choix', 'Escolher')}{rst}  "
+                    f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Cancel', 'Annuler', 'Cancelar')}{rst}"
+                )
+            lines.append(lm + self._box_line(hint, inner_w, b_col))
+            lines.append(lm + self._box_bot(inner_w, b_col))
+
+            top_pad = max(0, (rows - len(lines)) // 2)
+            out = ["\033[?2026h\033[H"] + ["\033[K"] * top_pad + [f"{ln}\033[K" for ln in lines] + ["\033[J\033[?2026l"]
+            sys.stdout.write("\n".join(out))
+            sys.stdout.flush()
+
+            key = _read_key(self.tty_fd, timeout=0.15)
+            if key is None:
+                continue
+            if key in ("ESC", "CTRL_C", "q", "Q"):
+                return None
+            if key == "ENTER":
+                return SEARCH_FILTERS[sel]["id"]
+            if key in ("DOWN", "j", "J", "TAB", "ALT_F"):
+                sel = (sel + 1) % len(SEARCH_FILTERS)
+                continue
+            if key in ("UP", "k", "K"):
+                sel = (sel - 1) % len(SEARCH_FILTERS)
+                continue
+            if len(key) == 1 and key.isdigit():
+                for flt in SEARCH_FILTERS:
+                    if flt["key"] == key:
+                        return flt["id"]
+
+    def _prompt_search(
+        self,
+        music_mode: bool = False,
+        initial_filter: str = "all",
+    ) -> tuple[str, str] | None:
+        """Styled YouTube search modal with channel/ tip, filter selector and search history."""
         assert self.tty_fd is not None
         query = ""
+        search_filter = normalize_search_filter(initial_filter)
         recent = load_json_file(SEARCH_HIST_FILE, [])[:6]
         hist_idx = -1  # -1 = typing in the search field
 
         while True:
             term = shutil.get_terminal_size((100, 32))
             cols, rows = max(54, term.columns), max(16, term.lines)
-            card_w = max(52, min(cols - 4, 72))
+            card_w = max(52, min(cols - 4, 74))
             inner_w = card_w - 4
             lm = " " * max(0, (cols - card_w) // 2)
 
             c_acc = THEME.ansi_fg("accent", bold=True)
             c_cyn = THEME.ansi_fg("cyan", bold=True)
+            c_grn = THEME.ansi_fg("green", bold=True)
             c_mag = THEME.ansi_fg("magenta", bold=True)
             c_fg = THEME.ansi_fg("bright_foreground", bold=True)
             c_txt = THEME.ansi_fg("light_foreground")
@@ -2798,11 +3456,38 @@ class OmarchyMainMenu:
             cursor_ch = f"{c_yel}▌{input_bg}" if hist_idx == -1 else ""
             shown_q = query if visible_len(query) <= inner_w - 10 else query[-(inner_w - 10):]
             if not shown_q and hist_idx == -1:
-                prompt_inner = f" {c_cyn}❯{input_bg} {cursor_ch}{c_mut}{tr('Type your search and press Enter...', 'Saisissez votre recherche puis Entrée...', 'Digite sua busca e pressione Enter...')}"
+                placeholder = truncate_plain(
+                    tr(
+                        "Type a search or channel/ (e.g. raimundo/)...",
+                        "Tapez une recherche ou chaîne/ (ex. raimundo/)...",
+                        "Digite uma busca ou canal/ (ex.: raimundo/)...",
+                    ),
+                    max(18, inner_w - 8),
+                )
+                prompt_inner = f" {c_cyn}❯{input_bg} {cursor_ch}{c_mut}{placeholder}"
             else:
                 prompt_inner = f" {c_cyn}❯{input_bg} {c_fg}{shown_q}{cursor_ch}"
             lines.append(lm + self._box_line(prompt_inner, inner_w, b_col, bg=input_bg))
-            lines.append(lm + self._box_line("", inner_w, b_col))
+
+            # Active filter & channel hint strip
+            flt_meta = get_search_filter_meta(search_filter)
+            flt_lbl = get_search_filter_label(search_filter)
+            flt_color = c_mag if search_filter != "all" else c_txt
+            flt_row = (
+                f" {c_mag}󰈲 {tr('Filter:', 'Filtre :', 'Filtro:')}{rst} "
+                f"{flt_color}{flt_meta['icon']} {flt_lbl}{rst}  "
+                f"{c_mut}[Tab / Alt+F]{rst}"
+            )
+            lines.append(lm + self._box_line(flt_row, inner_w, b_col))
+            ch_tip = truncate_plain(
+                tr(
+                    "Tip: type channel/ (e.g. raimundo/) or channel/topic for channel videos",
+                    "Astuce : tapez chaîne/ (ex. raimundo/) ou chaîne/sujet pour une chaîne",
+                    "Dica: digite canal/ (ex.: raimundo/) ou canal/termo para vídeos do canal",
+                ),
+                max(20, inner_w - 4),
+            )
+            lines.append(lm + self._box_line(f" {c_grn}󰠃{rst} {c_mut}{ch_tip}{rst}", inner_w, b_col))
 
             if recent:
                 lines.append(lm + self._box_div(inner_w, dim_b))
@@ -2825,6 +3510,7 @@ class OmarchyMainMenu:
             lines.append(lm + self._box_div(inner_w, dim_b))
             hint = (
                 f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Search', 'Chercher', 'Buscar')}{rst}  "
+                f"{c_mag}[Alt+F]{rst} {c_mut}{tr('Filter', 'Filtre', 'Filtro')}{rst}  "
                 f"{c_yel}[↑/↓]{rst} {c_mut}{tr('Recent', 'Récents', 'Recentes')}{rst}  "
                 f"{c_yel}[Ctrl+U]{rst} {c_mut}{tr('Clear', 'Effacer', 'Limpar')}{rst}  "
                 f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Back', 'Retour', 'Voltar')}{rst}"
@@ -2832,6 +3518,7 @@ class OmarchyMainMenu:
             if visible_len(hint) > inner_w:
                 hint = (
                     f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Search', 'Chercher', 'Buscar')}{rst}  "
+                    f"{c_mag}[Alt+F]{rst} {c_mut}{tr('Filter', 'Filtre', 'Filtro')}{rst}  "
                     f"{c_yel}[↑/↓]{rst} {c_mut}{tr('Recent', 'Récents', 'Recentes')}{rst}  "
                     f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Back', 'Retour', 'Voltar')}{rst}"
                 )
@@ -2848,13 +3535,21 @@ class OmarchyMainMenu:
                 continue
             if key in ("ESC", "CTRL_C"):
                 return None
+            if key == "TAB":
+                search_filter = next_search_filter(search_filter)
+                continue
+            if key in ("ALT_F", "CTRL_F"):
+                picked = self._prompt_search_filter(search_filter)
+                if picked is not None:
+                    search_filter = picked
+                continue
             if key == "ENTER":
                 chosen = recent[hist_idx] if (0 <= hist_idx < len(recent)) else query.strip()
                 if chosen:
-                    return chosen
+                    return (chosen, search_filter)
                 if music_mode:
                     # Allows opening music mode directly with the current list/history if empty
-                    return ""
+                    return ("", search_filter)
                 continue
             if key == "DOWN" and recent:
                 hist_idx = min(len(recent) - 1, hist_idx + 1)
@@ -3190,9 +3885,10 @@ class OmarchyMainMenu:
             lang_src = {
                 "env": tr("forced by OMAYT_LANG", "forcé par OMAYT_LANG", "forçado por OMAYT_LANG"),
                 "settings": tr("saved here", "enregistré ici", "salvo aqui"),
+                "omarchy": tr("from Omarchy", "d'après Omarchy", "do Omarchy"),
                 "locale": tr("from the system locale", "d'après la locale système", "da locale do sistema"),
                 "default": tr("default", "par défaut", "padrão"),
-            }[APP_LANG_SOURCE]
+            }.get(APP_LANG_SOURCE, tr("default", "par défaut", "padrão"))
             lang_label = tr("Interface language:", "Langue de l’interface :", "Idioma da interface:")
             lines.append(
                 lm
@@ -3203,20 +3899,30 @@ class OmarchyMainMenu:
                     b_col,
                 )
             )
-            lang_hint = tr("switch", "changer", "trocar")
-            env_warning = (
-                ""
-                if APP_LANG_SOURCE != "env"
-                else f"  {c_red}{tr('OMAYT_LANG has priority', 'OMAYT_LANG a la priorité', 'OMAYT_LANG tem prioridade')}{rst}"
+            en_opt = (
+                f"{c_yel}[e]{rst} {c_grn}✓{rst} {c_fg}English{rst}"
+                if APP_LANG == "en"
+                else f"{c_yel}[e]{rst} {c_mut}○ English{rst}"
             )
-            lines.append(
-                lm
-                + self._box_line(
-                    f"   {c_yel}[l]{rst} {c_mut}{lang_hint}{rst}{env_warning}",
-                    inner_w,
-                    b_col,
+            pt_opt = (
+                f"{c_yel}[p]{rst} {c_grn}✓{rst} {c_fg}Português (Brasil){rst}"
+                if APP_LANG == "pt"
+                else f"{c_yel}[p]{rst} {c_mut}○ Português (Brasil){rst}"
+            )
+            toggle_lbl = tr("toggle", "basculer", "alternar")
+            lang_row = f"  {en_opt}   {pt_opt}   {c_yel}[l]{rst} {c_mut}{toggle_lbl}{rst}"
+            if visible_len(lang_row) > inner_w:
+                lang_row = f"  {en_opt}  {pt_opt}"
+            lines.append(lm + self._box_line(lang_row, inner_w, b_col))
+            if APP_LANG_SOURCE == "env":
+                lines.append(
+                    lm
+                    + self._box_line(
+                        f"  {c_red}⚠ {tr('OMAYT_LANG has priority over saved settings', 'OMAYT_LANG a la priorité sur le réglage enregistré', 'OMAYT_LANG tem prioridade sobre o ajuste salvo')}{rst}",
+                        inner_w,
+                        b_col,
+                    )
                 )
-            )
             lines.append(lm + self._box_div(inner_w, dim_b))
 
             lines.append(lm + self._box_line(f"{c_acc}{tr('Local Storage:', 'Stockage local :', 'Armazenamento local:')}{rst}", inner_w, b_col))
@@ -3314,17 +4020,26 @@ class OmarchyMainMenu:
             elif key in ("h", "H"):
                 save_json_file(SEARCH_HIST_FILE, [])
                 feedback = tr("Recent search history cleared.", "Historique des recherches récentes effacé.", 'Histórico de buscas recentes limpo.')
-            elif key in ("l", "L"):
-                next_lang = UI_LANGS[(UI_LANGS.index(APP_LANG) + 1) % len(UI_LANGS)]
-                if not save_ui_lang(next_lang):
+            elif key in ("e", "E", "p", "P", "l", "L"):
+                if key in ("e", "E"):
+                    target_lang = "en"
+                elif key in ("p", "P"):
+                    target_lang = "pt"
+                else:
+                    target_lang = "pt" if APP_LANG == "en" else "en"
+                if not save_ui_lang(target_lang):
                     env_lang = _env_ui_lang() or ""
                     feedback = tr(
-                        f"{LANG_NAMES[next_lang]} saved, but OMAYT_LANG={env_lang} has priority.",
-                        f"{LANG_NAMES[next_lang]} enregistré, mais OMAYT_LANG={env_lang} a la priorité.",
-                        f"{LANG_NAMES[next_lang]} salvo, mas OMAYT_LANG={env_lang} tem prioridade.",
+                        f"{LANG_NAMES[target_lang]} saved, but OMAYT_LANG={env_lang} has priority.",
+                        f"{LANG_NAMES[target_lang]} enregistré, mais OMAYT_LANG={env_lang} a la priorité.",
+                        f"{LANG_NAMES[target_lang]} salvo, mas OMAYT_LANG={env_lang} tem prioridade.",
                     )
                 else:
-                    feedback = ""
+                    feedback = tr(
+                        f"Language switched to {LANG_NAMES[target_lang]}.",
+                        f"Langue changée en {LANG_NAMES[target_lang]}.",
+                        f"Idioma alterado para {LANG_NAMES[target_lang]}.",
+                    )
 
     def run(self) -> int:
         ensure_dirs()
@@ -3365,24 +4080,24 @@ class OmarchyMainMenu:
                     elif key in ("END", "G"):
                         self.selected = sel_indices[-1]
                     elif key == "/":
-                        q = self._prompt_search(music_mode=False)
-                        if q:
+                        q_res = self._prompt_search(music_mode=False)
+                        if q_res is not None:
                             action_id = "search_go"
-                            payload = q
+                            payload = q_res
                             break
                     elif key == "ENTER":
                         chosen_id = items[self.selected]["id"]
                         if chosen_id == "search":
-                            q = self._prompt_search(music_mode=False)
-                            if q:
+                            q_res = self._prompt_search(music_mode=False)
+                            if q_res is not None:
                                 action_id = "search_go"
-                                payload = q
+                                payload = q_res
                                 break
                         elif chosen_id == "music":
-                            q = self._prompt_search(music_mode=True)
-                            if q is not None:
+                            q_res = self._prompt_search(music_mode=True)
+                            if q_res is not None:
                                 action_id = "music_go"
-                                payload = q
+                                payload = q_res
                                 break
                         elif chosen_id == "url":
                             res = self._prompt_direct_url()
@@ -3398,6 +4113,8 @@ class OmarchyMainMenu:
                                 break
                         elif chosen_id == "diagnostics":
                             self._show_diagnostics()
+                            items = self._build_menu_items()
+                            sel_indices = self._selectable_indices(items)
                         else:
                             action_id = chosen_id
                             break
@@ -3407,16 +4124,16 @@ class OmarchyMainMenu:
                                 self.selected = idx
                                 chosen_id = it["id"]
                                 if chosen_id == "search":
-                                    q = self._prompt_search(music_mode=False)
-                                    if q:
+                                    q_res = self._prompt_search(music_mode=False)
+                                    if q_res is not None:
                                         action_id = "search_go"
-                                        payload = q
+                                        payload = q_res
                                         break
                                 elif chosen_id == "music":
-                                    q = self._prompt_search(music_mode=True)
-                                    if q is not None:
+                                    q_res = self._prompt_search(music_mode=True)
+                                    if q_res is not None:
                                         action_id = "music_go"
-                                        payload = q
+                                        payload = q_res
                                         break
                                 elif chosen_id == "url":
                                     res = self._prompt_direct_url()
@@ -3432,6 +4149,8 @@ class OmarchyMainMenu:
                                         break
                                 elif chosen_id == "diagnostics":
                                     self._show_diagnostics()
+                                    items = self._build_menu_items()
+                                    sel_indices = self._selectable_indices(items)
                                 else:
                                     action_id = chosen_id
                                     break
@@ -3444,13 +4163,15 @@ class OmarchyMainMenu:
             if action_id == "quit" or action_id is None:
                 return 0
             elif action_id == "search_go":
-                run_tui(initial_query=str(payload), from_menu=True)
+                q_str, q_flt = payload
+                run_tui(initial_query=str(q_str), initial_filter=str(q_flt), from_menu=True)
             elif action_id == "resume":
                 run_tui(from_menu=True)
             elif action_id == "history":
                 run_tui(start_in_history=True, from_menu=True)
             elif action_id == "music_go":
-                run_tui(initial_query=str(payload), default_mode="audio", from_menu=True)
+                q_str, q_flt = payload
+                run_tui(initial_query=str(q_str), initial_filter=str(q_flt), default_mode="audio", from_menu=True)
             elif action_id == "url_go":
                 url_str, mode = payload
                 vid = extract_youtube_id(url_str)
@@ -3477,11 +4198,61 @@ def run_main_menu() -> int:
 # ============================================================================
 
 
+def choose_search_filter_tui(current_filter: str = "all") -> str | None:
+    """Opens the Omarchy search filter picker modal (with styled fzf fallback)."""
+    active = normalize_search_filter(current_filter)
+    modal = OmarchyMainMenu()
+    if modal._enter_screen():
+        try:
+            return modal._prompt_search_filter(active)
+        finally:
+            modal._leave_screen()
+
+    if not shutil.which("fzf"):
+        return None
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_grn = THEME.ansi_fg("green", bold=True)
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    c_fg = THEME.ansi_fg("foreground")
+    rst = THEME.reset
+    rows: list[str] = []
+    for flt in SEARCH_FILTERS:
+        fid = flt["id"]
+        mark = f"{c_grn}✓{rst}" if fid == active else " "
+        rows.append(
+            f"{fid}\t{mark} {c_yel}[{flt['key']}]{rst} {c_acc}{flt['icon']}{rst}  {c_fg}{get_search_filter_label(fid)}{rst}"
+        )
+    fzf_env = dict(os.environ)
+    fzf_env["SHELL"] = "/bin/sh"
+    proc = subprocess.run(
+        [
+            "fzf",
+            "--ansi",
+            "--layout=reverse",
+            "--height=60%",
+            "--border=rounded",
+            f"--border-label= 󰈲 {tr('Search Filter', 'Filtre de recherche', 'Filtro de pesquisa')} ",
+            "--delimiter=\t",
+            "--with-nth=2..",
+            f"--prompt=󰈲 {tr('Filter', 'Filtre', 'Filtro')} > ",
+            THEME.fzf_color_arg(),
+        ],
+        input="\n".join(rows),
+        stdout=subprocess.PIPE,
+        text=True,
+        env=fzf_env,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return normalize_search_filter(proc.stdout.splitlines()[0].split("\t", 1)[0])
+
+
 def run_tui(
     initial_query: str = "",
     start_in_history: bool = False,
     default_mode: str = "window",
     from_menu: bool = False,
+    initial_filter: str = "all",
 ) -> int:
     ensure_dirs()
     ensure_global_ytdlp_fix()
@@ -3492,41 +4263,101 @@ def run_tui(
 
     script = str(Path(__file__).resolve())
     current_query = initial_query.strip()
+    current_filter = normalize_search_filter(initial_filter)
+    active_channel_title = ""
+    active_channel_subquery = ""
     search_limit = SEARCH_PAGE_SIZE
     has_more = False
+
+    def _run_search_status(q_str: str, flt_code: str, clear_screen: bool = False) -> list[dict[str, Any]]:
+        nonlocal active_channel_title, active_channel_subquery
+        c_acc = THEME.ansi_fg("accent", bold=True)
+        rst = THEME.reset
+        flt_tag = (
+            f" [{get_search_filter_label(flt_code, short=True)}]"
+            if normalize_search_filter(flt_code) != "all"
+            else ""
+        )
+        ch_p = parse_channel_query(q_str)
+        if ch_p is not None:
+            ch_sp, ch_sq = ch_p
+            if ch_sq:
+                msg = tr(
+                    f"Searching channel “{ch_sp}” for “{ch_sq}”{flt_tag} ({SEARCH_PAGE_SIZE} results)...",
+                    f"Recherche dans la chaîne « {ch_sp} » pour « {ch_sq} »{flt_tag} ({SEARCH_PAGE_SIZE} résultats)...",
+                    f"Buscando no canal “{ch_sp}” por “{ch_sq}”{flt_tag} ({SEARCH_PAGE_SIZE} resultados)...",
+                )
+            else:
+                msg = tr(
+                    f"Loading videos from channel “{ch_sp}”{flt_tag} ({SEARCH_PAGE_SIZE} results)...",
+                    f"Chargement des vidéos de la chaîne « {ch_sp} »{flt_tag} ({SEARCH_PAGE_SIZE} résultats)...",
+                    f"Carregando vídeos do canal “{ch_sp}”{flt_tag} ({SEARCH_PAGE_SIZE} resultados)...",
+                )
+        else:
+            msg = tr(
+                f"Searching YouTube for “{q_str}”{flt_tag} ({SEARCH_PAGE_SIZE} results) and loading HD thumbnails...",
+                f"Recherche sur YouTube de “{q_str}”{flt_tag} ({SEARCH_PAGE_SIZE} résultats) et chargement des vignettes HD...",
+                f"Buscando “{q_str}”{flt_tag} no YouTube ({SEARCH_PAGE_SIZE} resultados) e carregando as miniaturas HD...",
+            )
+        if clear_screen:
+            os.system("clear")
+            print(f"\n  {c_acc}󰗃 omayt:{rst} {msg}")
+        else:
+            sys.stderr.write(f"  {c_acc}󰗃 omayt:{rst} {msg}\r")
+            sys.stderr.flush()
+        vids = search_youtube(q_str, max_results=SEARCH_PAGE_SIZE, search_filter=flt_code)
+        st = load_json_file(STATE_FILE, {})
+        active_channel_title = (st.get("channel_title") or "").strip()
+        active_channel_subquery = (st.get("channel_subquery") or "").strip()
+        return vids
 
     if start_in_history:
         videos = load_json_file(HISTORY_FILE, [])
         save_json_file(LAST_LIST_FILE, videos)
-        save_json_file(STATE_FILE, {"mode": "history", "query": "", "count": len(videos), "limit": 0, "has_more": False})
+        save_json_file(
+            STATE_FILE,
+            {"mode": "history", "query": "", "filter": current_filter, "count": len(videos), "limit": 0, "has_more": False},
+        )
         prefetch_thumbnails_async([v.get("id", "") for v in videos])
         header_note = tr("Watched Video History", "Historique des vidéos vues", 'Histórico de vídeos assistidos')
     elif current_query:
-        c_acc = THEME.ansi_fg("accent", bold=True)
-        rst = THEME.reset
-        searching = tr(
-            f"Searching YouTube for “{current_query}” ({SEARCH_PAGE_SIZE} results)...",
-            f"Recherche sur YouTube de “{current_query}” ({SEARCH_PAGE_SIZE} résultats)...",
-            f"Buscando “{current_query}” no YouTube ({SEARCH_PAGE_SIZE} resultados)...",
-        )
-        sys.stderr.write(f"  {c_acc}󰗃 omayt:{rst} {searching}\r")
-        sys.stderr.flush()
-        videos = search_youtube(current_query, max_results=SEARCH_PAGE_SIZE)
+        videos = _run_search_status(current_query, current_filter, clear_screen=False)
         search_limit = SEARCH_PAGE_SIZE
         has_more = bool(videos)
-        header_note = f"{tr('Search:', 'Recherche :', 'Busca:')} {current_query} • {len(videos)} {tr('videos', 'vidéos', 'vídeos')}"
+        header_note = format_search_header_note(
+            current_query,
+            len(videos),
+            search_filter=current_filter,
+            channel_title=active_channel_title,
+            channel_subquery=active_channel_subquery,
+        )
     else:
         videos = load_json_file(LAST_LIST_FILE, [])
         if not videos:
             videos = load_json_file(HISTORY_FILE, [])
             header_note = tr("Recent History", "Historique récent", 'Histórico recente') if videos else ""
+            if current_filter != "all":
+                st = load_json_file(STATE_FILE, {})
+                st["filter"] = current_filter
+                save_json_file(STATE_FILE, st)
         else:
             state = load_json_file(STATE_FILE, {})
             current_query = (state.get("query") or "").strip()
+            if initial_filter == "all":
+                current_filter = normalize_search_filter(state.get("filter"))
+            active_channel_title = (state.get("channel_title") or "").strip()
+            active_channel_subquery = (state.get("channel_subquery") or "").strip()
             search_limit = int(state.get("limit") or max(SEARCH_PAGE_SIZE, len(videos)))
             has_more = bool(current_query and state.get("has_more", True))
             header_note = (
-                f"{tr('Last search:', 'Dernière recherche :', 'Última busca:')} {current_query} • {len(videos)} {tr('videos', 'vidéos', 'vídeos')}"
+                format_search_header_note(
+                    current_query,
+                    len(videos),
+                    search_filter=current_filter,
+                    channel_title=active_channel_title,
+                    channel_subquery=active_channel_subquery,
+                    is_last=True,
+                )
                 if current_query
                 else ""
             )
@@ -3552,18 +4383,31 @@ def run_tui(
             enter_hint = f"Enter:{tr('Open/Search', 'Ouvrir/Chercher', 'Abrir/Buscar')}"
             mode_tag = ""
 
+        flt_short = get_search_filter_label(current_filter, short=True)
+        filter_hint = (
+            f" │ Alt-F:󰈲 {flt_short}"
+            if current_filter != "all"
+            else f" │ Alt-F:{tr('Filter', 'Filtre', 'Filtro')}"
+        )
         more_hint = f" │ Alt-M:+{SEARCH_PAGE_SIZE}" if can_load_more else ""
         esc_hint = f" │ Esc:{tr('Menu', 'Menu', 'Menu')}" if from_menu else ""
         header_bar = (
-            f"{enter_hint} │ Ctrl-S:{tr('Search', 'Chercher', 'Buscar')}{more_hint} │ "
+            f"{enter_hint} │ Ctrl-S:{tr('Search', 'Chercher', 'Buscar')}{filter_hint}{more_hint} │ "
             f"Alt-I:{tr('Terminal', 'Terminal', 'Terminal')} │ "
             f"Alt-A:󰎆 Cava │ Alt-D:{tr('Download', 'Téléch.', 'Baixar')} │ "
             f"Ctrl-H:{tr('History', 'Histo.', 'Histórico')}{esc_hint}"
         )
 
-        label_query = (
-            f" • {tr('Search:', 'Recherche :', 'Busca:')} {current_query} ({len(videos)})"
-            if current_query
+        if current_query:
+            if active_channel_title:
+                label_query = f" • {tr('Channel:', 'Chaîne :', 'Canal:')} {active_channel_title} ({len(videos)})"
+            else:
+                label_query = f" • {tr('Search:', 'Recherche :', 'Busca:')} {current_query} ({len(videos)})"
+        else:
+            label_query = ""
+        label_filter = (
+            f" • {tr('Filter:', 'Filtre :', 'Filtro:')} {flt_short}"
+            if current_filter != "all"
             else ""
         )
 
@@ -3575,7 +4419,7 @@ def run_tui(
             "--layout=reverse",
             "--height=100%",
             "--border=rounded",
-            f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [{tr('Theme:', 'Thème :', 'Tema:')} {THEME.name}{mode_tag}{label_query}] ",
+            f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [{tr('Theme:', 'Thème :', 'Tema:')} {THEME.name}{mode_tag}{label_query}{label_filter}] ",
             "--border-label-pos=3",
             f"--preview-label= 󰥶 {tr('Thumbnail HD & Details', 'Vignette HD & détails', 'Miniatura HD & detalhes')} ",
             "--delimiter=\t",
@@ -3589,6 +4433,8 @@ def run_tui(
             "--bind=change:first",
             "--bind=enter:print(enter)+accept",
             "--bind=ctrl-s:print(search)+accept",
+            "--bind=alt-f:print(filter)+accept",
+            "--bind=ctrl-o:print(filter)+accept",
             "--bind=alt-m:print(more)+accept",
             "--bind=ctrl-e:print(more)+accept",
             "--bind=ctrl-h:print(history)+accept",
@@ -3628,13 +4474,44 @@ def run_tui(
             else ""
         )
 
+        if action == "filter":
+            picked = choose_search_filter_tui(current_filter)
+            if picked is not None:
+                current_filter = picked
+                st = load_json_file(STATE_FILE, {})
+                st["filter"] = current_filter
+                save_json_file(STATE_FILE, st)
+                target_q = typed_query or current_query
+                if target_q:
+                    videos = _run_search_status(target_q, current_filter, clear_screen=True)
+                    current_query = target_q
+                    search_limit = SEARCH_PAGE_SIZE
+                    has_more = bool(videos)
+                    header_note = format_search_header_note(
+                        current_query,
+                        len(videos),
+                        search_filter=current_filter,
+                        channel_title=active_channel_title,
+                        channel_subquery=active_channel_subquery,
+                    )
+                else:
+                    header_note = (
+                        f"{tr('Filter:', 'Filtre :', 'Filtro:')} {get_search_filter_label(current_filter)}"
+                    )
+            continue
+
         if action == "history" or (video_id == "__HISTORY__" and not typed_query):
             videos = load_json_file(HISTORY_FILE, [])
             save_json_file(LAST_LIST_FILE, videos)
-            save_json_file(STATE_FILE, {"mode": "history", "query": "", "count": len(videos), "limit": 0, "has_more": False})
+            save_json_file(
+                STATE_FILE,
+                {"mode": "history", "query": "", "filter": current_filter, "count": len(videos), "limit": 0, "has_more": False},
+            )
             prefetch_thumbnails_async([v.get("id", "") for v in videos])
             header_note = tr("Watched Video History", "Historique des vidéos vues", 'Histórico de vídeos assistidos')
             current_query = ""
+            active_channel_title = ""
+            active_channel_subquery = ""
             has_more = False
             continue
 
@@ -3642,7 +4519,6 @@ def run_tui(
             if current_query and has_more:
                 old_count = len(videos)
                 c_acc = THEME.ansi_fg("accent", bold=True)
-                c_cyn = THEME.ansi_fg("cyan", bold=True)
                 rst = THEME.reset
                 os.system("clear")
                 loading = tr(
@@ -3659,16 +4535,30 @@ def run_tui(
                     videos,
                     search_limit,
                     page_size=SEARCH_PAGE_SIZE,
+                    search_filter=current_filter,
                 )
+                st = load_json_file(STATE_FILE, {})
+                active_channel_title = (st.get("channel_title") or active_channel_title).strip()
+                active_channel_subquery = (st.get("channel_subquery") or active_channel_subquery).strip()
                 if added > 0:
                     has_more = True
-                    header_note = f"{tr('Search:', 'Recherche :', 'Busca:')} {current_query} • {len(videos)} {tr('videos', 'vidéos', 'vídeos')}"
+                    header_note = format_search_header_note(
+                        current_query,
+                        len(videos),
+                        search_filter=current_filter,
+                        channel_title=active_channel_title,
+                        channel_subquery=active_channel_subquery,
+                    )
                     next_load_pos = f"pos({old_count + 2})"
                 else:
                     has_more = False
-                    header_note = (
-                        f"{tr('Search:', 'Recherche :', 'Busca:')} {current_query} • "
-                        f"{len(videos)} {tr('videos', 'vidéos', 'vídeos')} ({tr('end', 'fin', 'fim')})"
+                    header_note = format_search_header_note(
+                        current_query,
+                        len(videos),
+                        search_filter=current_filter,
+                        channel_title=active_channel_title,
+                        channel_subquery=active_channel_subquery,
+                        reached_end=True,
                     )
                     next_load_pos = f"pos({len(videos) + 1})" if videos else "pos(1)"
             continue
@@ -3678,9 +4568,13 @@ def run_tui(
             if not q:
                 c_acc = THEME.ansi_fg("accent", bold=True)
                 c_yel = THEME.ansi_fg("yellow", bold=True)
+                c_mut = THEME.ansi_fg("muted")
                 rst = THEME.reset
                 os.system("clear")
                 print(f"\n  {c_acc}󰗃 omayt • {tr('New YouTube Search', 'Nouvelle recherche YouTube', 'Nova busca no YouTube')}{rst}")
+                print(
+                    f"  {c_mut}{tr('Tip: type channel/ (e.g. raimundo/) for all videos from a channel', 'Astuce : tapez chaîne/ (ex. raimundo/) pour les vidéos d’une chaîne', 'Dica: digite canal/ (ex.: raimundo/) para os vídeos de um canal')}{rst}"
+                )
                 try:
                     q = input(
                         f"  {c_yel}{tr('Type your search:', 'Saisissez votre recherche :', 'Digite sua busca:')}{rst} "
@@ -3688,20 +4582,17 @@ def run_tui(
                 except (EOFError, KeyboardInterrupt):
                     continue
             if q:
-                c_acc = THEME.ansi_fg("accent", bold=True)
-                rst = THEME.reset
-                os.system("clear")
-                searching = tr(
-                    f"Searching YouTube for “{q}” ({SEARCH_PAGE_SIZE} results) and loading HD thumbnails...",
-                    f"Recherche sur YouTube de “{q}” ({SEARCH_PAGE_SIZE} résultats) et chargement des vignettes HD...",
-                    f"Buscando “{q}” no YouTube ({SEARCH_PAGE_SIZE} resultados) e carregando as miniaturas HD...",
-                )
-                print(f"\n  {c_acc}󰗃 omayt:{rst} {searching}")
-                videos = search_youtube(q, max_results=SEARCH_PAGE_SIZE)
+                videos = _run_search_status(q, current_filter, clear_screen=True)
                 current_query = q
                 search_limit = SEARCH_PAGE_SIZE
                 has_more = bool(videos)
-                header_note = f"{tr('Search:', 'Recherche :', 'Busca:')} {q} • {len(videos)} {tr('videos', 'vidéos', 'vídeos')}"
+                header_note = format_search_header_note(
+                    current_query,
+                    len(videos),
+                    search_filter=current_filter,
+                    channel_title=active_channel_title,
+                    channel_subquery=active_channel_subquery,
+                )
             continue
 
         if action in ("alt-i", "ctrl-t"):
@@ -3764,6 +4655,12 @@ def print_help() -> None:
             "Busca no YouTube direto e abre a TUI com miniaturas HD",
         ),
         row(
+            ("omayt <channel>/ [term]", "omayt <chaîne>/ [terme]", "omayt <canal>/ [termo]"),
+            "Lists videos from a specific channel (e.g. omayt raimundo/)",
+            "Liste les vidéos d’une chaîne précise (ex. omayt raimundo/)",
+            "Lista vídeos de um canal específico (ex.: omayt raimundo/)",
+        ),
+        row(
             ("omayt -H / --history", "omayt -H / --history", "omayt -H / --history"),
             "Opens the TUI directly in the watched video History",
             "Ouvre directement la TUI dans l’historique des vidéos vues",
@@ -3794,6 +4691,12 @@ def print_help() -> None:
             "Search YouTube for the text typed in the top bar (30 results)",
             "Rechercher sur YouTube le texte saisi dans la barre du haut (30 résultats)",
             "Buscar no YouTube o texto digitado na barra superior (30 resultados)",
+        ),
+        row(
+            ("Alt+F  (or Ctrl+O)", "Alt+F  (ou Ctrl+O)", "Alt+F  (ou Ctrl+O)"),
+            "Choose a YouTube search filter (date, views, duration, live)",
+            "Choisir un filtre de recherche YouTube (date, vues, durée, direct)",
+            "Escolher um filtro de pesquisa do YouTube (data, views, duração, ao vivo)",
         ),
         row(
             ("Alt+M  (or Ctrl+E)", "Alt+M  (ou Ctrl+E)", "Alt+M  (ou Ctrl+E)"),
@@ -3858,9 +4761,9 @@ def print_help() -> None:
         "",
         f"  {c_yel}OMAYT_LANG=en|fr|pt{rst} "
         + tr(
-            "picks the interface language: en, fr or pt (English is the fallback; also settable in Settings).",
-            "choisit la langue de l’interface : en, fr ou pt (anglais par défaut ; aussi réglable dans les Paramètres).",
-            "escolhe o idioma da interface: en, fr ou pt (inglês por padrão; também ajustável nos Ajustes).",
+            "picks the interface language (defaults to Omarchy language, then system locale, then English; also settable in [7] Settings).",
+            "choisit la langue de l’interface (suit la langue d’Omarchy, puis la locale système, puis l’anglais ; aussi réglable dans [7] Paramètres).",
+            "escolhe o idioma da interface (segue o idioma do Omarchy, depois a locale do sistema e inglês; também ajustável em [7] Ajustes).",
         ),
     ]
     print("\n".join(lines))
@@ -3911,10 +4814,23 @@ def main(argv: list[str]) -> int:
         return 0 if ok else 1
 
     if cmd == "--internal-search":
-        query = " ".join(argv[1:]).strip()
+        args = list(argv[1:])
+        flt = normalize_search_filter(load_json_file(STATE_FILE, {}).get("filter"))
+        if len(args) >= 2 and args[0] == "--filter":
+            flt = normalize_search_filter(args[1])
+            args = args[2:]
+        query = " ".join(args).strip()
         if query:
-            videos = search_youtube(query)
-            print(format_tui_rows(videos, f"{tr('Search:', 'Recherche :', 'Busca:')} {query}"))
+            videos = search_youtube(query, search_filter=flt)
+            st = load_json_file(STATE_FILE, {})
+            note = format_search_header_note(
+                query,
+                len(videos),
+                search_filter=flt,
+                channel_title=(st.get("channel_title") or "").strip(),
+                channel_subquery=(st.get("channel_subquery") or "").strip(),
+            )
+            print(format_tui_rows(videos, note))
         else:
             videos = load_json_file(LAST_LIST_FILE, []) or load_json_file(HISTORY_FILE, [])
             print(
@@ -3956,6 +4872,11 @@ def main(argv: list[str]) -> int:
 
     if cmd == "--internal-ytdl-hook":
         return run_ytdl_hook_wrapper(argv[1:])
+
+    if cmd in ("-F", "--filter") and len(argv) >= 2:
+        flt = normalize_search_filter(argv[1])
+        rest = " ".join(argv[2:]).strip()
+        return run_tui(initial_query=rest, initial_filter=flt)
 
     return run_tui(initial_query=" ".join(argv))
 
