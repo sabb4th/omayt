@@ -17,6 +17,11 @@ echo "  ✓ Binary installed at: $BIN_DIR/omayt"
 mkdir -p "$HOME/.config/yt-dlp"
 YTDLP_CONFIG="$HOME/.config/yt-dlp/config"
 if ! grep -q -- "-tv_samsung" "$YTDLP_CONFIG" 2>/dev/null; then
+    if [ -s "$YTDLP_CONFIG" ]; then
+        YTDLP_BACKUP="$YTDLP_CONFIG.bak.$(date +%s)"
+        cp -p "$YTDLP_CONFIG" "$YTDLP_BACKUP"
+        echo "  ✓ Your existing yt-dlp config was backed up to: $YTDLP_BACKUP"
+    fi
     {
         echo ""
         echo "# Avoids the 5s HTTP 403 ad block on the tv_samsung client"
@@ -51,7 +56,14 @@ esac
 EOF
 chmod +x "$HOME/.config/ytfzf/thumbnail-viewers/sixel-inline"
 
-cat << 'EOF' > "$HOME/.config/ytfzf/conf.sh"
+YTFZF_CONF="$HOME/.config/ytfzf/conf.sh"
+if [ -e "$YTFZF_CONF" ]; then
+    echo "  ! $YTFZF_CONF already exists — left untouched."
+    echo "    To use omayt's Sixel thumbnail viewer and the tv_samsung fix in ytfzf, add these lines to it:"
+    echo "      thumbnail_viewer=\"\$HOME/.config/ytfzf/thumbnail-viewers/sixel-inline\""
+    echo "      url_handler_opts='--ytdl-raw-options-append=extractor-args=\"youtube:player_client=default,-tv_samsung\"'"
+else
+cat << 'EOF' > "$YTFZF_CONF"
 show_thumbnails=1
 fzf_preview_side="left"
 preview_window_width="50%"
@@ -79,7 +91,8 @@ thumbnail_video_info_text() {
     [ -n "$date" ] && printf "\n ${c_blue}Date     ${c_cyan}%s${c_reset}\n" "$date"
 }
 EOF
-echo "  ✓ Sixel thumbnail configuration + tv_samsung fix applied to ytfzf (~/.config/ytfzf/conf.sh)"
+    echo "  ✓ Sixel thumbnail configuration + tv_samsung fix applied to ytfzf (~/.config/ytfzf/conf.sh)"
+fi
 
 echo ""
 echo "🎉 Installation complete! Now just run:"
