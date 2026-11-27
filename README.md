@@ -32,7 +32,7 @@
 | **Zero API keys & zero Invidious** | Direct search through `yt-dlp`, with no dependency on YouTube Data API quotas or unstable Invidious instances. |
 | **Zero `pip` dependencies** | Written entirely in the system's standard Python — no `venv`, no extra PyPI packages. |
 | **Zero `HTTP 403` blocks** | 3-layer protection (*Anti-403*) with the `tv_samsung` profile bypass, `Ad-Wait Guard` and auto-reconnect. |
-| **Zero AV1 stutter on the CPU** | Excludes AV1 streams (`[vcodec!^=av01]`) and prioritises **H.264 / VP9** with **VA-API** decoding on the GPU. |
+| **Zero AV1 stutter on the CPU** | Excludes AV1 streams (`[vcodec!^=av01]`) and prioritises **H.264 / VP9** with hardware decoding on the GPU (`--hwdec=auto-safe`: VA-API, VDPAU or NVDEC, whichever the driver supports). |
 | **Zero external `cava` needed** | A **Radix-2 FFT** spectrum visualiser at **60 FPS**, embedded directly in the audio player. |
 
 ---
@@ -71,7 +71,7 @@ omayt --lang en            # force the interface language (en / pt / fr)
 ## ✨ What makes it good
 
 ### 🎨 Hand-crafted main menu & native Omarchy theme sync
-- **Flicker-free interface:** Alternate-screen rendering with synchronised updates (`\033[?2026h`), a pixel-art `OMAYT` logo with an animated TrueColor gradient, mini equalisers, a live status bar (active theme, `VA-API`, `Anti-403`, history counter) and your most recent searches.
+- **Flicker-free interface:** Alternate-screen rendering with synchronised updates (`\033[?2026h`), a pixel-art `OMAYT` logo with an animated TrueColor gradient, mini equalisers, a live status bar (active theme, GPU, `Anti-403`, history counter) and your most recent searches.
 - **Automatic Omarchy palette:** Reads `~/.local/state/omarchy/current/theme/colors.toml` and `theme.name` at startup and applies your theme's exact colours to the main menu, the `fzf` explorer, the preview pane and the Cava visualiser.
 - **One-key navigation:** Press `1–7` to open any module directly, or `/` to start an immediate YouTube search.
 
@@ -90,9 +90,9 @@ omayt --lang en            # force the interface language (en / pt / fr)
 - **Definitive fix for Arch Linux (`gdk-pixbuf2` / `glycin`):** On recent Arch, the `/usr/bin/img2sixel` utility can fail and return `0 bytes`. `omayt` works around it by decoding the image with `ffmpeg` (16:9 crop + **Lanczos** scaling + `unsharp` sharpening) and calling `sixel_encoder_encode_bytes` in memory directly against `libsixel.so.1` through `ctypes`, with a `.sixel` cache on disk.
 - **Multi-terminal:** Uses `kitten icat` (`--transfer-mode=memory --unicode-placeholder`) on **Kitty** and **Ghostty**, native HD Sixel on **Foot**, and falls back to `chafa` automatically.
 
-### ⚡ VA-API hardware acceleration & AV1 exclusion
-- Prioritises **H.264 / VP9** streams (`[vcodec!^=av01]`) up to **1080p** in the `mpv` window (`--hwdec=vaapi,vaapi-copy`) and up to **720p** in the terminal's inline modes (`--hwdec=vaapi-copy`).
-- Avoids heavy software AV1 decoding and works around common Vulkan Video (`VK_KHR_video_decode_queue`) failures on Intel Iris Xe, AMD and Mesa GPUs.
+### ⚡ Hardware decode (`auto-safe`) & AV1 exclusion
+- Prioritises **H.264 / VP9** streams (`[vcodec!^=av01]`) up to **1080p** in the `mpv` window and up to **720p** in the terminal's inline modes, all with `--hwdec=auto-safe`.
+- Avoids heavy software AV1 decoding, uses whatever the driver offers (VA-API on AMD/Intel, VDPAU or NVDEC where present) and falls back to software decoding cleanly when nothing is available, instead of insisting on one API.
 
 ### 🛡️ Triple Anti-403 protection (`tv_samsung` bypass + `Ad-Wait Guard`)
 1. **`tv_samsung` client bypass:** Injects `--extractor-args "youtube:player_client=default,-tv_samsung"` into `yt-dlp` and `mpv` (`--ytdl-raw-options-append`).
@@ -185,7 +185,7 @@ omayt -t
 omayt -H
 omayt --history
 
-# Apply the global Anti-403, no-AV1 and VA-API optimisations to yt-dlp and mpv
+# Apply the global Anti-403, no-AV1 and hardware-decode optimisations to yt-dlp and mpv
 omayt --fix-ytdlp
 
 # Render any image as HD Sixel in the Foot terminal

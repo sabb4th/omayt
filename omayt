@@ -3,7 +3,7 @@
 omayt - Omarchy YouTube TUI
 Search, view high-definition thumbnails (Sixel HD / Kitty / Chafa) and watch videos
 from YouTube right in the Omarchy terminal, with protection against 403 blocks (tv_samsung / Ad-Wait),
-VA-API hardware acceleration (Intel Iris Xe / AMD / Mesa) and a Cava-style audio visualizer!
+Hardware video decode (VA-API / VDPAU / NVDEC, auto-safe) and a Cava-style audio visualizer!
 """
 
 from __future__ import annotations
@@ -482,7 +482,7 @@ def ensure_global_ytdlp_fix() -> bool:
             with mpv_cfg.open("a", encoding="utf-8") as f:
                 if mpv_existing and not mpv_existing.endswith("\n"):
                     f.write("\n")
-                f.write("# VA-API hardware acceleration (avoids Vulkan Video VK_KHR_video_decode_queue failure)\nhwdec=vaapi,vaapi-copy\n")
+                f.write("# Hardware decode: VA-API / VDPAU / NVDEC when available, software fallback otherwise\nhwdec=auto-safe\n")
         return True
     except OSError:
         return False
@@ -1792,7 +1792,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
         print(f"\n {sep}")
         print(f" {c_acc}⌨  {tr('TUI Quick Shortcuts:', 'Raccourcis rapides de la TUI :', 'Atalhos rápidos da TUI:')}{rst}")
-        print(f"   {c_yel}Enter{rst}    {tr('Watch video in', 'Regarder la vidéo dans', 'Assistir ao vídeo no')} {c_fg}mpv{rst} ({tr('Wayland Window', 'Fenêtre Wayland', 'Janela Wayland')} • {tr('VA-API GPU', 'GPU VA-API', 'GPU VA-API')})")
+        print(f"   {c_yel}Enter{rst}    {tr('Watch video in', 'Regarder la vidéo dans', 'Assistir ao vídeo no')} {c_fg}mpv{rst} ({tr('Wayland Window', 'Fenêtre Wayland', 'Janela Wayland')} • {tr('GPU decode', 'Décodage GPU', 'Decodificação GPU')})")
         print(f"   {c_yel}Alt+F{rst}    {tr('Change', 'Changer le', 'Alterar o')} {c_mag}{tr('YouTube search filter', 'filtre de recherche YouTube', 'filtro de busca do YouTube')}{rst} ({tr('date, views, duration, live', 'date, vues, durée, direct', 'data, views, duração, ao vivo')})")
         print(f"   {c_yel}Alt+M{rst}    {tr('Load', 'Charger', 'Carregar')} {c_cyn}+{SEARCH_PAGE_SIZE} {tr('more results', 'résultats de plus', 'resultados')}{rst} {tr('for this search (or', 'pour cette recherche (ou', 'para esta busca (ou')} {c_yel}Ctrl+E{rst})")
         print(f"   {c_yel}Alt+I{rst}    {tr('Watch video', 'Regarder la vidéo', 'Assistir ao vídeo')} {c_grn}{tr('INSIDE the terminal', 'DANS le terminal', 'DENTRO do terminal')}{rst} ({tr('Sixel/Kitty pixels!', 'pixels Sixel/Kitty !', 'pixels Sixel/Kitty!')})")
@@ -1812,7 +1812,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
         print(f"\n {sep}")
         print(f" {c_grn}🛡️  {tr('Video, Cava Audio & HD Thumbnail Optimizations Active:', 'Optimisations vidéo, audio Cava et vignettes HD actives :', 'Otimizações de vídeo, áudio Cava e miniaturas HD ativas:')}{rst}")
-        print(f"   {c_txt}• {tr('GPU Decode:', 'Décodage GPU :', 'Decodificação GPU:')} {c_grn}VA-API (Intel Iris Xe / Mesa){rst} — {tr('no Vulkan Video error', 'aucune erreur Vulkan Video', 'nenhum erro de Vulkan Video')}")
+        print(f"   {c_txt}• {tr('GPU Decode:', 'Décodage GPU :', 'Decodificação GPU:')} {c_grn}auto-safe (VA-API / VDPAU / NVDEC){rst} — {tr('software fallback when the driver cannot decode', 'repli logiciel si le pilote ne peut pas décoder', 'fallback para software quando o driver não consegue decodificar')}")
         print(f"   {c_txt}• {tr('TUI Audio :', 'Audio TUI  :', 'Áudio TUI  :')} {c_mag}{tr('Cava-style FFT Spectrum Visualizer at 60 FPS', 'visualiseur de spectre FFT façon Cava à 60 FPS', 'visualizador de espectro FFT estilo Cava a 60 FPS')}{rst}")
         print(f"   {c_txt}• {tr('Thumbnails:', 'Vignettes :', 'Miniaturas:')} {c_cyn}1280x720 MaxRes + Lanczos + Unsharp + {tr('256-Color Histogram', 'histogramme 256 couleurs', 'histograma de 256 cores')}{rst}")
         print(f"   {c_txt}• {tr('Theme     :', 'Thème     :', 'Tema      :')} {c_mag}{THEME.name}{rst}")
@@ -1869,7 +1869,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         f"{c_acc}󰈈 {tr('Views:', 'Vues :', 'Visualizações:')}{rst} {c_mag}{disp_views}{rst}"
     )
     print(f" {c_acc}󰌷 {tr('Link   :', 'Lien   :', 'Link   :')}{rst} {c_mut}{video.get('url', '')}{rst}")
-    print(f" {c_acc}🛡️ {tr('Player :', 'Lecteur :', 'Player :')}{rst} {c_grn}{tr('VA-API Hardware Decode • Anti-403 Active', 'Décodage VA-API • Anti-403 actif', 'Decodificação VA-API • Anti-403 ativo')}{rst}")
+    print(f" {c_acc}🛡️ {tr('Player :', 'Lecteur :', 'Player :')}{rst} {c_grn}{tr('Hardware decode (auto-safe) • Anti-403 Active', 'Décodage matériel (auto-safe) • Anti-403 actif', 'Decodificação de hardware (auto-safe) • Anti-403 ativo')}{rst}")
     print(f" {sep}")
     print(
         f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} MPV  "
@@ -2489,7 +2489,7 @@ class CavaVisualizerPlayer:
 
 
 # ============================================================================
-# 8. PLAYERS (MPV WINDOW WITH VA-API, MPV INLINE TERMINAL SIXEL/KITTY, AUDIO+CAVA)
+# 8. PLAYERS (MPV WINDOW WITH HARDWARE DECODE, MPV INLINE TERMINAL SIXEL/KITTY, AUDIO+CAVA)
 # ============================================================================
 
 
@@ -2558,31 +2558,31 @@ def play_video(video_id: str, mode: str = "window") -> None:
             os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
         )
         if is_kitty_or_ghostty:
-            base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            base_cmd.extend(["--vo=kitty", "--hwdec=auto-safe", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
-                "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)",
-                "Vidéo dans le terminal (protocole graphique Kitty • VA-API)", 'Vídeo no terminal (protocolo gráfico Kitty • VA-API)',
+                "Inline Video in Terminal (Kitty Graphics Protocol • auto-safe)",
+                "Vidéo dans le terminal (protocole graphique Kitty • auto-safe)", 'Vídeo no terminal (protocolo gráfico Kitty • auto-safe)',
             )
 
         else:
-            base_cmd.extend(["--vo=sixel", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            base_cmd.extend(["--vo=sixel", "--hwdec=auto-safe", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
-                "Inline Video in Terminal (Sixel Graphics - Foot • VA-API)",
-                "Vidéo dans le terminal (graphismes Sixel - Foot • VA-API)", 'Vídeo no terminal (gráficos Sixel - Foot • VA-API)',
+                "Inline Video in Terminal (Sixel Graphics - Foot • auto-safe)",
+                "Vidéo dans le terminal (graphismes Sixel - Foot • auto-safe)", 'Vídeo no terminal (gráficos Sixel - Foot • auto-safe)',
             )
 
     elif mode == "inline-blocks":
-        base_cmd.extend(["--vo=tct", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+        base_cmd.extend(["--vo=tct", "--hwdec=auto-safe", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
         mode_label = tr(
-            "Video in Terminal (TrueColor Blocks TCT • VA-API)",
-            "Vidéo dans le terminal (blocs TrueColor TCT • VA-API)", 'Vídeo no terminal (blocos TrueColor TCT • VA-API)',
+            "Video in Terminal (TrueColor Blocks TCT • auto-safe)",
+            "Vidéo dans le terminal (blocs TrueColor TCT • auto-safe)", 'Vídeo no terminal (blocos TrueColor TCT • auto-safe)',
         )
 
     else:
-        base_cmd.extend(["--hwdec=vaapi,vaapi-copy", f"--ytdl-format={no_av1_1080}"])
+        base_cmd.extend(["--hwdec=auto-safe", f"--ytdl-format={no_av1_1080}"])
         mode_label = tr(
-            "MPV Window (Wayland • VA-API Hardware Acceleration)",
-            "Fenêtre MPV (Wayland • accélération matérielle VA-API)", 'Janela MPV (Wayland • aceleração de hardware VA-API)',
+            "MPV Window (Wayland • hardware decode, auto-safe)",
+            "Fenêtre MPV (Wayland • décodage matériel, auto-safe)", 'Janela MPV (Wayland • decodificação de hardware, auto-safe)',
         )
 
 
@@ -2591,7 +2591,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
     os.system("clear")
     print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
     print(f"  {c_yel}▶{rst} {title}")
-    print(f"  {c_mut}🛡️ {tr('GPU Decode: VA-API (Intel Iris Xe) | Anti-AdBlock: default,-tv_samsung', 'Décodage GPU : VA-API (Intel Iris Xe) | Anti-AdBlock : default,-tv_samsung', 'Decodificação GPU: VA-API (Intel Iris Xe) | Anti-AdBlock: default,-tv_samsung')}{rst}")
+    print(f"  {c_mut}🛡️ {tr('GPU Decode: auto-safe (VA-API / VDPAU / NVDEC) | Anti-AdBlock: default,-tv_samsung', 'Décodage GPU : auto-safe (VA-API / VDPAU / NVDEC) | Anti-AdBlock : default,-tv_samsung', 'Decodificação GPU: auto-safe (VA-API / VDPAU / NVDEC) | Anti-AdBlock: default,-tv_samsung')}{rst}")
     if mode.startswith("inline"):
         tip = tr(
             "💡 Tip: Press 'q' to stop the video and return to the TUI, 'space' to pause, ←/→ to seek.",
@@ -2705,7 +2705,7 @@ def extract_youtube_id(text: str) -> str | None:
 def play_direct_target(
     target: str, title: str, mode: str = "window", is_local: bool = False
 ) -> None:
-    """Plays a direct URL or a local file using MPV (VA-API / Sixel / Kitty / Cava)."""
+    """Plays a direct URL or a local file using MPV (hardware decode / Sixel / Kitty / Cava)."""
     ensure_dirs()
     c_acc = THEME.ansi_fg("accent", bold=True)
     c_grn = THEME.ansi_fg("green", bold=True)
@@ -2749,37 +2749,37 @@ def play_direct_target(
             os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
         )
         if is_kitty_or_ghostty:
-            base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
+            base_cmd.extend(["--vo=kitty", "--hwdec=auto-safe", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
-                "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)",
-                "Vidéo dans le terminal (protocole graphique Kitty • VA-API)", 'Vídeo no terminal (protocolo gráfico Kitty • VA-API)',
+                "Inline Video in Terminal (Kitty Graphics Protocol • auto-safe)",
+                "Vidéo dans le terminal (protocole graphique Kitty • auto-safe)", 'Vídeo no terminal (protocolo gráfico Kitty • auto-safe)',
             )
 
         else:
-            base_cmd.extend(["--vo=sixel", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
+            base_cmd.extend(["--vo=sixel", "--hwdec=auto-safe", "--profile=sw-fast", "--really-quiet"])
             mode_label = tr(
-                "Inline Video in Terminal (Sixel Graphics - Foot • VA-API)",
-                "Vidéo dans le terminal (graphismes Sixel - Foot • VA-API)", 'Vídeo no terminal (gráficos Sixel - Foot • VA-API)',
+                "Inline Video in Terminal (Sixel Graphics - Foot • auto-safe)",
+                "Vidéo dans le terminal (graphismes Sixel - Foot • auto-safe)", 'Vídeo no terminal (gráficos Sixel - Foot • auto-safe)',
             )
 
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_720}")
     elif mode == "inline-blocks":
-        base_cmd.extend(["--vo=tct", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
+        base_cmd.extend(["--vo=tct", "--hwdec=auto-safe", "--profile=sw-fast", "--really-quiet"])
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_720}")
         mode_label = tr(
-            "Video in Terminal (TrueColor Blocks TCT • VA-API)",
-            "Vidéo dans le terminal (blocs TrueColor TCT • VA-API)", 'Vídeo no terminal (blocos TrueColor TCT • VA-API)',
+            "Video in Terminal (TrueColor Blocks TCT • auto-safe)",
+            "Vidéo dans le terminal (blocs TrueColor TCT • auto-safe)", 'Vídeo no terminal (blocos TrueColor TCT • auto-safe)',
         )
 
     else:
-        base_cmd.append("--hwdec=vaapi,vaapi-copy")
+        base_cmd.append("--hwdec=auto-safe")
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_1080}")
         mode_label = tr(
-            "MPV Window (Wayland • VA-API Hardware Acceleration)",
-            "Fenêtre MPV (Wayland • accélération matérielle VA-API)", 'Janela MPV (Wayland • aceleração de hardware VA-API)',
+            "MPV Window (Wayland • hardware decode, auto-safe)",
+            "Fenêtre MPV (Wayland • décodage matériel, auto-safe)", 'Janela MPV (Wayland • decodificação de hardware, auto-safe)',
         )
 
 
@@ -2789,9 +2789,9 @@ def play_direct_target(
     print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
     print(f"  {c_yel}▶{rst} {title}")
     if is_local:
-        print(f"  {c_mut}󰇚 {tr('Local playback • GPU Decode: VA-API', 'Lecture locale • décodage GPU : VA-API', 'Reprodução local • decodificação GPU: VA-API')}{rst}\n")
+        print(f"  {c_mut}󰇚 {tr('Local playback • GPU Decode: auto-safe', 'Lecture locale • décodage GPU : auto-safe', 'Reprodução local • decodificação GPU: auto-safe')}{rst}\n")
     else:
-        print(f"  {c_mut}󰒃 {tr('GPU Decode: VA-API | Anti-AdBlock: default,-tv_samsung', 'Décodage GPU : VA-API | Anti-AdBlock : default,-tv_samsung', 'Decodificação GPU: VA-API | Anti-AdBlock: default,-tv_samsung')}{rst}\n")
+        print(f"  {c_mut}󰒃 {tr('GPU Decode: auto-safe | Anti-AdBlock: default,-tv_samsung', 'Décodage GPU : auto-safe | Anti-AdBlock : default,-tv_samsung', 'Decodificação GPU: auto-safe | Anti-AdBlock: default,-tv_samsung')}{rst}\n")
 
     subprocess.run(base_cmd, env=_subproc_env())
 
@@ -3162,9 +3162,9 @@ class OmarchyMainMenu:
                 "label": tr("Settings & Diagnostics", "Paramètres & diagnostics", 'Ajustes & diagnóstico'),
                 "badge": THEME.name,
                 "desc": tr(
-                    "Language (EN/FR/PT), dependencies, active Omarchy palette, cache and VA-API",
-                    "Langue (EN/FR/PT), dépendances, palette Omarchy active, cache et VA-API",
-                    "Idioma (EN/FR/PT), dependências, paleta Omarchy ativa, cache e VA-API",
+                    "Language (EN/FR/PT), dependencies, active Omarchy palette, cache and GPU decode",
+                    "Langue (EN/FR/PT), dépendances, palette Omarchy active, cache et décodage GPU",
+                    "Idioma (EN/FR/PT), dependências, paleta Omarchy ativa, cache e decodificação GPU",
                 ),
             },
             {
@@ -3319,7 +3319,7 @@ class OmarchyMainMenu:
         if show_pills:
             pills = (
                 f"{c_mag}󰏘 {THEME.name}{rst}  {c_mut}│{rst}  "
-                f"{c_grn}󰍛 VA-API{rst}  {c_mut}│{rst}  "
+                f"{c_grn}󰍛 GPU{rst}  {c_mut}│{rst}  "
                 f"{c_cyn}󰒃 Anti-403{rst}  {c_mut}│{rst}  "
                 f"{c_yel}󰋚 {len(watch_hist)} " + tr("in history", "dans l’historique", 'no histórico') + f"{rst}"
             )
@@ -3703,7 +3703,7 @@ class OmarchyMainMenu:
         url = clip if extract_youtube_id(clip) else ""
         clip_detected = bool(url)
         modes = [
-            ("window", "1", "󰕧", tr("MPV Window (Wayland • VA-API)", "Fenêtre MPV (Wayland • VA-API)", 'Janela MPV (Wayland • VA-API)'), "accent"),
+            ("window", "1", "󰕧", tr("MPV Window (Wayland • auto-safe)", "Fenêtre MPV (Wayland • auto-safe)", 'Janela MPV (Wayland • auto-safe)'), "accent"),
             ("inline-pixels", "2", "󰥶", tr("Video in Terminal (Sixel / Kitty)", "Vidéo dans le terminal (Sixel / Kitty)", 'Vídeo no terminal (Sixel / Kitty)'), "cyan"),
             ("inline-blocks", "3", "󰍹", tr("TrueColor Blocks in Terminal (TCT)", "Blocs TrueColor dans le terminal (TCT)", 'Blocos TrueColor no terminal (TCT)'), "green"),
             ("audio", "4", "󰎆", tr("Audio Only + Cava Visualizer", "Audio seul + visualiseur Cava", 'Somente áudio + visualizador Cava'), "magenta"),
@@ -4111,7 +4111,7 @@ class OmarchyMainMenu:
 
             lines.append(lm + self._box_div(inner_w, dim_b))
             key_back = tr("[q/Esc]", "[q/Échap]", '[q/Esc]')
-            fix_lbl = tr("Fix VA-API/403", "Corriger VA-API/403", 'Corrigir VA-API/403')
+            fix_lbl = tr("Fix GPU/403", "Corriger GPU/403", 'Corrigir GPU/403')
             cache_lbl = tr("Clear Cache", "Vider le cache", 'Limpar cache')
             clear_lbl = tr("Clear Searches", "Effacer les recherches", 'Limpar buscas')
             back_lbl = tr("Back", "Retour", 'Voltar')
@@ -4153,8 +4153,8 @@ class OmarchyMainMenu:
                 ok = ensure_global_ytdlp_fix()
                 feedback = (
                     tr(
-                        "Anti-403 and VA-API optimizations applied to yt-dlp and mpv!",
-                        "Optimisations Anti-403 et VA-API appliquées à yt-dlp et mpv !", 'Otimizações Anti-403 e VA-API aplicadas ao yt-dlp e ao mpv!',
+                        "Anti-403 and hardware-decode optimizations applied to yt-dlp and mpv!",
+                        "Optimisations Anti-403 et décodage matériel appliquées à yt-dlp et mpv !", 'Otimizações Anti-403 e decodificação de hardware aplicadas ao yt-dlp e ao mpv!',
                     )
                     if ok
                     else tr(
@@ -4798,7 +4798,7 @@ def print_help() -> None:
     keys_title = tr("SHORTCUTS IN THE TUI:", "RACCOURCIS DANS LA TUI :", "ATALHOS NA TUI:")
     lines = [
         f"{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI "
-        f"({tr('Interactive Menu + HD Sixel', 'Menu interactif + Sixel HD', 'Menu interativo + Sixel HD')} + VA-API + Cava)",
+        f"({tr('Interactive Menu + HD Sixel', 'Menu interactif + Sixel HD', 'Menu interativo + Sixel HD')} + hardware decode + Cava)",
         "",
         f"{c_yel}{usage}{rst}",
         row(
@@ -4839,9 +4839,9 @@ def print_help() -> None:
         ),
         row(
             ("omayt --fix-ytdlp", "omayt --fix-ytdlp", "omayt --fix-ytdlp"),
-            "Applies the fixes (-tv_samsung, no AV1 and VA-API) system-wide",
-            "Applique les correctifs (-tv_samsung, pas d’AV1 et VA-API) au système",
-            "Aplica as correções (-tv_samsung, sem AV1 e VA-API) no sistema",
+            "Applies the fixes (-tv_samsung, no AV1 and hardware decode) system-wide",
+            "Applique les correctifs (-tv_samsung, pas d’AV1 et décodage matériel) au système",
+            "Aplica as correções (-tv_samsung, sem AV1 e decodificação de hardware) no sistema",
         ),
         row(
             ("omayt -h / --help", "omayt -h / --help", "omayt -h / --help"),
@@ -4853,9 +4853,9 @@ def print_help() -> None:
         f"{c_grn}{keys_title}{rst}",
         row(
             ("Enter", "Entrée", "Enter"),
-            "Watch video in mpv with VA-API acceleration (or Cava in Music Mode)",
-            "Regarder la vidéo dans mpv avec l’accélération VA-API (ou Cava en mode musique)",
-            "Assistir ao vídeo no mpv com aceleração VA-API (ou Cava no modo música)",
+            "Watch video in mpv with hardware decode (or Cava in Music Mode)",
+            "Regarder la vidéo dans mpv avec le décodage matériel (ou Cava en mode musique)",
+            "Assistir ao vídeo no mpv com decodificação de hardware (ou Cava no modo música)",
         ),
         row(
             ("Ctrl+S", "Ctrl+S", "Ctrl+S"),
@@ -4985,8 +4985,8 @@ def main(argv: list[str]) -> int:
         if ok:
             print(
                 tr(
-                    "✓ Configured ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf (VA-API + Anti-403)",
-                    "✓ ~/.config/yt-dlp/config et ~/.config/mpv/mpv.conf configurés (VA-API + Anti-403)", '✓ ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf configurados (VA-API + Anti-403)',
+                    "✓ Configured ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf (hardware decode + Anti-403)",
+                    "✓ ~/.config/yt-dlp/config et ~/.config/mpv/mpv.conf configurés (décodage matériel + Anti-403)", '✓ ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf configurados (decodificação de hardware + Anti-403)',
                 )
             )
         else:
