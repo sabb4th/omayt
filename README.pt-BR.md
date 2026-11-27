@@ -167,9 +167,9 @@ omayt -h
 
 ### 🌍 Idioma da interface
 
-A interface vem em **português do Brasil**, **inglês** e **francês** — menu principal, rótulos do `fzf`, painel de preview, faixas dos players e `--help`. De primeira, o app acompanha automaticamente o **idioma do Omarchy** (`~/.config/omarchy/language`) e pode ser alternado a qualquer momento em **[7] Ajustes & diagnóstico** (`[e]` English, `[p]` Português (Brasil), `[l]` alternar). Ordem de prioridade:
+A interface vem em **português do Brasil**, **inglês** e **francês** — menu principal, rótulos do `fzf`, painel de preview, faixas dos players e `--help`. De primeira, o app acompanha automaticamente o **idioma do Omarchy** (`~/.config/omarchy/language`) e pode ser alternado a qualquer momento em **[7] Ajustes & diagnóstico** (`[e]` English, `[p]` Português (Brasil), `[r]` Francês, `[l]` alternar) ou por execução com `--lang en|fr|pt`. Ordem de prioridade:
 
-1. `OMAYT_LANG` (`en`, `pt`, `fr`, além de `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), que sempre tem prioridade;
+1. `--lang en|fr|pt` (flag de CLI) ou `OMAYT_LANG` (`en`, `pt`, `fr`, além de `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…);
 2. o idioma salvo em **[7] Ajustes & diagnóstico** (`~/.config/omayt/settings.json`);
 3. o **idioma do Omarchy** (`~/.config/omarchy/language` — se estiver em `pt-BR`, começa em português; se estiver em inglês, começa em inglês);
 4. a locale do sistema (`LC_ALL` / `LC_MESSAGES` / `LANG`);
@@ -177,6 +177,7 @@ A interface vem em **português do Brasil**, **inglês** e **francês** — menu
 
 ```bash
 # Apenas um lançamento, sem alterar o ajuste salvo
+omayt --lang en
 OMAYT_LANG=fr omayt
 ```
 

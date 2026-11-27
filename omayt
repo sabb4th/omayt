@@ -16,6 +16,7 @@ import math
 import os
 import re
 import select
+import shlex
 import shutil
 import socket
 import struct
@@ -79,6 +80,11 @@ DOWNLOAD_DIR = Path.home() / "Videos" / "omayt"
 
 UI_LANGS = ("en", "fr", "pt")
 LANG_NAMES = {"en": "English", "fr": "Français", "pt": "Português (Brasil)"}
+LANG_LABELS: dict[str, tuple[str, str, str]] = {
+    "en": ("English", "English", "English"),
+    "fr": ("French", "Français", "Francês"),
+    "pt": ("Portuguese (Brazil)", "Portugais (Brésil)", "Português (Brasil)"),
+}
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 
@@ -106,14 +112,28 @@ def _saved_ui_lang() -> str | None:
 
 
 def _omarchy_ui_lang() -> str | None:
-    """Reads Omarchy's configured UI language (~/.config/omarchy/language)."""
+    """Reads Omarchy's configured UI language (~/.config/omarchy/language or uwsm env)."""
     cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    lang_file = cfg_home / "omarchy" / "language"
+    env_file = os.environ.get("OMARCHY_LANGUAGE_FILE")
+    lang_file = Path(env_file) if env_file else (cfg_home / "omarchy" / "language")
     try:
-        raw = lang_file.read_text(encoding="utf-8").strip()
+        raw = lang_file.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        raw = ""
+    if raw:
+        return _lang_code(raw) or "en"
+
+    uwsm_lang_file = cfg_home / "uwsm" / "env.d" / "50-omarchy-language"
+    try:
+        for line in uwsm_lang_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("export LANG="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if val:
+                    return _lang_code(val) or "en"
     except OSError:
-        return None
-    return _lang_code(raw) if raw else None
+        pass
+    return None
 
 
 def _locale_ui_lang() -> str | None:
@@ -151,6 +171,37 @@ def tr(en: str, fr: str, pt: str) -> str:
     if APP_LANG == "pt":
         return pt
     return en
+
+
+def ui_lang_name(code: str) -> str:
+    """Returns the localized display name for a language code in the active UI language."""
+    en_lbl, fr_lbl, pt_lbl = LANG_LABELS.get(code, LANG_LABELS["en"])
+    return tr(en_lbl, fr_lbl, pt_lbl)
+
+
+def set_runtime_ui_lang(code: str, source: str = "cli") -> bool:
+    """Sets the active UI language for the current process without writing settings.json."""
+    global APP_LANG, APP_LANG_SOURCE
+    norm = _lang_code(code)
+    if not norm:
+        return False
+    APP_LANG, APP_LANG_SOURCE = norm, source
+    return True
+
+
+def _subproc_env() -> dict[str, str]:
+    """Builds a subprocess environment propagating the active UI language and locale."""
+    env = dict(os.environ)
+    env["OMAYT_LANG"] = APP_LANG
+    if APP_LANG == "en":
+        ctype = env.get("LC_ALL") or env.get("LC_CTYPE") or env.get("LANG") or "C.UTF-8"
+        if "utf" not in ctype.lower():
+            ctype = "C.UTF-8"
+        env.pop("LC_ALL", None)
+        env["LC_CTYPE"] = ctype
+        env["LC_MESSAGES"] = "C"
+        env["LANGUAGE"] = "en"
+    return env
 
 
 def save_ui_lang(code: str) -> bool:
@@ -465,7 +516,13 @@ def run_ytdl_hook_wrapper(args: list[str]) -> int:
         cmd.extend(["--extractor-args", EXTRACTOR_ARGS_CLI, "-S", "vcodec:h264,vp9"])
     cmd.extend(args)
 
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_subproc_env(),
+    )
     if proc.stderr:
         sys.stderr.write(proc.stderr)
 
@@ -1164,6 +1221,8 @@ def format_duration(seconds: Any) -> str:
     if not seconds:
         return tr("LIVE", "DIRECT", "AO VIVO")
     if isinstance(seconds, str):
+        if seconds.strip().upper() in ("LIVE", "DIRECT", "EN DIRECT", "AO VIVO"):
+            return tr("LIVE", "DIRECT", "AO VIVO")
         return seconds
     try:
         sec = int(float(seconds))
@@ -1189,7 +1248,52 @@ def format_views(count: Any) -> str:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
         return f"{n / 1_000:.1f}K"
-    return f"{n:,}".replace(",", ".")
+    sep = tr(",", "\u202f", ".")
+    return f"{n:,}".replace(",", sep)
+
+
+def localize_duration(raw_duration: Any, duration_raw: Any = None) -> str:
+    """Normalizes cached duration strings (e.g. 'AO VIVO' / 'DIRECT') to the active UI language."""
+    if isinstance(duration_raw, (int, float)) and duration_raw > 0:
+        return format_duration(duration_raw)
+    if raw_duration is None or raw_duration == "":
+        return tr("LIVE", "DIRECT", "AO VIVO") if duration_raw is None else "—"
+    txt = str(raw_duration).strip()
+    if txt.upper() in ("LIVE", "DIRECT", "EN DIRECT", "AO VIVO"):
+        return tr("LIVE", "DIRECT", "AO VIVO")
+    return txt
+
+
+def localize_video_title(raw_title: Any, video_id: str = "") -> str:
+    """Normalizes fallback video titles ('Sem título', 'Vídeo <id>', etc.) to the active UI language."""
+    txt = str(raw_title or "").strip()
+    if not txt or txt in ("Untitled", "Sans titre", "Sem título"):
+        return tr("Untitled", "Sans titre", "Sem título")
+    m = re.fullmatch(r"(?:Video|Vidéo|Vídeo)\s+([a-zA-Z0-9_-]{11})", txt)
+    if m:
+        vid = m.group(1)
+        return tr(f"Video {vid}", f"Vidéo {vid}", f"Vídeo {vid}")
+    return txt
+
+
+def localize_views(raw_views: Any, views_raw: Any = None) -> str:
+    """Normalizes cached view counts to the active UI language."""
+    if isinstance(views_raw, (int, float)):
+        return format_views(views_raw)
+    if raw_views is None or raw_views == "":
+        return "—"
+    txt = str(raw_views).strip()
+    low = txt.lower()
+    if low in ("no views", "aucune vue", "sem visualizações", "0 views", "0 vues", "0 visualizações"):
+        return "0"
+    for suffix in (" visualizações", " visualização", " vues", " vue", " views", " view"):
+        if low.endswith(suffix):
+            num_part = txt[: -len(suffix)].strip()
+            digits = re.sub(r"[.,\s\u202f]", "", num_part)
+            if digits.isdigit():
+                return format_views(int(digits))
+            return num_part or "—"
+    return txt
 
 
 def _apply_channel_local_filter(
@@ -1540,17 +1644,16 @@ def format_tui_rows(
         f"{rst}{c_mut}{search_hint}{rst}"
     )
 
-    untitled = tr("Untitled", "Sans titre", "Sem título")
     for idx, v in enumerate(videos, 1):
         vid = v.get("id", "")
-        title = v.get("title") or untitled
+        title = localize_video_title(v.get("title"), vid)
         if len(title) > 52:
             title = title[:49] + "..."
         channel = v.get("channel", "YouTube")
         if len(channel) > 18:
             channel = channel[:16] + ".."
-        dur = v.get("duration", "??:??")
-        views = v.get("views", "—")
+        dur = localize_duration(v.get("duration", "??:??"), v.get("duration_raw"))
+        views = localize_views(v.get("views", "—"), v.get("views_raw"))
 
         row = (
             f"{vid}\t"
@@ -1612,9 +1715,14 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         next_end = loaded_cnt + SEARCH_PAGE_SIZE
 
         more_title = tr(
-            f"Load More Results ({SEARCH_PAGE_SIZE} of {SEARCH_PAGE_SIZE})",
+            f"Load More Results (+{SEARCH_PAGE_SIZE} per page)",
             f"Charger plus de résultats ({SEARCH_PAGE_SIZE} sur {SEARCH_PAGE_SIZE})",
             f"Carregar mais resultados ({SEARCH_PAGE_SIZE} de {SEARCH_PAGE_SIZE})",
+        )
+        loaded_word = (
+            tr("video", "vidéo", "vídeo")
+            if loaded_cnt == 1
+            else tr("videos", "vidéos", "vídeos")
         )
         print(f"\n {c_cyn}󰐕{rst} {c_acc}{more_title}{rst}")
         print(f" {sep}")
@@ -1622,7 +1730,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         if ch_saved:
             print(f" {c_acc}󰠃  {tr('Channel     :', 'Chaîne      :', 'Canal       :')}{rst} {c_grn}{ch_saved}{rst}")
         print(f" {c_acc}󰈲  {tr('Filter      :', 'Filtre      :', 'Filtro      :')}{rst} {c_mag}{get_search_filter_label(flt_saved)}{rst}")
-        print(f" {c_acc}󰕧  {tr('Loaded      :', 'Chargées    :', 'Carregados  :')}{rst} {c_fg}{loaded_cnt} {tr('videos', 'vidéos', 'vídeos')}{rst}")
+        print(f" {c_acc}󰕧  {tr('Loaded      :', 'Chargées    :', 'Carregados  :')}{rst} {c_fg}{loaded_cnt} {loaded_word}{rst}")
         print(f" {c_acc}󰐕  {tr('Next batch  :', 'Prochain lot:', 'Próximo lote:')}{rst} {c_grn}+{SEARCH_PAGE_SIZE} {tr('videos', 'vidéos', 'vídeos')} ({next_start}–{next_end}){rst}")
         print(f"\n {sep}")
         print(f" {c_grn}↳ {tr('Press [Enter] on this line or [Alt+M] / [Ctrl+E] anywhere', 'Appuyez sur [Entrée] sur cette ligne ou [Alt+M] / [Ctrl+E] n’importe où', 'Pressione [Enter] nesta linha ou [Alt+M] / [Ctrl+E] em qualquer lugar')}{rst}")
@@ -1742,15 +1850,23 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
-    wrapped_title = textwrap.wrap(video.get("title") or tr("Untitled", "Sans titre", "Sem título"), width=wrap_w)
+    disp_title = localize_video_title(video.get("title"), item_id)
+    wrapped_title = textwrap.wrap(disp_title, width=wrap_w)
     for line in wrapped_title[:2]:
         print(f" {c_fg}{line}{rst}")
+
+    disp_dur = (
+        "—"
+        if video.get("duration") == "—" and "duration_raw" not in video
+        else localize_duration(video.get("duration", "—"), video.get("duration_raw"))
+    )
+    disp_views = localize_views(video.get("views", "—"), video.get("views_raw"))
 
     print(f" {sep}")
     print(f" {c_acc}󰠃 {tr('Channel:', 'Chaîne :', 'Canal:')}{rst} {c_grn}{video.get('channel', '—')}{rst}")
     print(
-        f" {c_acc}󰥔 {tr('Runtime:', 'Durée :', 'Duração:')}{rst} {c_yel}{video.get('duration', '—')}{rst}   "
-        f"{c_acc}󰈈 {tr('Views:', 'Vues :', 'Visualizações:')}{rst} {c_mag}{video.get('views', '—')}{rst}"
+        f" {c_acc}󰥔 {tr('Runtime:', 'Durée :', 'Duração:')}{rst} {c_yel}{disp_dur}{rst}   "
+        f"{c_acc}󰈈 {tr('Views:', 'Vues :', 'Visualizações:')}{rst} {c_mag}{disp_views}{rst}"
     )
     print(f" {c_acc}󰌷 {tr('Link   :', 'Lien   :', 'Link   :')}{rst} {c_mut}{video.get('url', '')}{rst}")
     print(f" {c_acc}🛡️ {tr('Player :', 'Lecteur :', 'Player :')}{rst} {c_grn}{tr('VA-API Hardware Decode • Anti-403 Active', 'Décodage VA-API • Anti-403 actif', 'Decodificação VA-API • Anti-403 ativo')}{rst}")
@@ -2057,6 +2173,7 @@ class CavaVisualizerPlayer:
             self.mpv_cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=_subproc_env(),
         )
         self._start_audio_capture()
         self._start_mpv_ipc_poller()
@@ -2216,7 +2333,7 @@ class CavaVisualizerPlayer:
         rst = THEME.reset
 
         inner_w = cols - 6
-        title = self.video.get("title") or tr("Untitled", "Sans titre", "Sem título")
+        title = localize_video_title(self.video.get("title"), str(self.video.get("id") or ""))
         if len(title) > inner_w - 4:
             title = title[: inner_w - 7] + "..."
         channel = self.video.get("channel", "YouTube")
@@ -2224,7 +2341,13 @@ class CavaVisualizerPlayer:
         # Song progress bar
         pos_str = format_duration(int(self.time_pos)) if self.time_pos > 0 else "00:00"
         dur_val = self.duration if self.duration > 0 else 0.0
-        dur_str = format_duration(int(dur_val)) if dur_val > 0 else (self.video.get("duration") or "--:--")
+        raw_vid_dur = self.video.get("duration")
+        fallback_dur = (
+            localize_duration(raw_vid_dur, self.video.get("duration_raw"))
+            if raw_vid_dur and raw_vid_dur != "--:--"
+            else "--:--"
+        )
+        dur_str = format_duration(int(dur_val)) if dur_val > 0 else fallback_dur
 
         ratio = min(1.0, max(0.0, self.time_pos / dur_val)) if dur_val > 0 else 0.0
         pbar_w = max(16, min(inner_w - 28, 64))
@@ -2396,7 +2519,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
     ensure_dirs()
     video = get_video_info(video_id)
     url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
-    title = video.get("title") or url
+    title = localize_video_title(video.get("title"), video_id) if video.get("title") else url
 
     record_watch_history(video)
 
@@ -2483,7 +2606,8 @@ def play_video(video_id: str, mode: str = "window") -> None:
         print(f"  {c_mut}{tip}{rst}\n")
 
     start_ts = time.time()
-    proc = subprocess.run(base_cmd)
+    proc_env = _subproc_env()
+    proc = subprocess.run(base_cmd, env=proc_env)
     elapsed = time.time() - start_ts
 
     if proc.returncode != 0 and elapsed < 5.0:
@@ -2491,7 +2615,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
             f"\n  {c_yel}⚠ {tr('YouTube temporarily held the stream because of an ad.', 'YouTube a temporairement retenu le flux à cause d’une publicité.', 'O YouTube reteve o stream temporariamente por causa de um anúncio.')}{rst}"
         )
         _show_ad_wait_countdown(4.0)
-        subprocess.run(base_cmd)
+        subprocess.run(base_cmd, env=proc_env)
 
 
 def download_video(video_id: str) -> None:
@@ -2499,7 +2623,7 @@ def download_video(video_id: str) -> None:
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     video = get_video_info(video_id)
     url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
-    title = video.get("title") or video_id
+    title = localize_video_title(video.get("title"), video_id) if video.get("title") else video_id
 
     c_acc = THEME.ansi_fg("accent", bold=True)
     c_grn = THEME.ansi_fg("green", bold=True)
@@ -2542,7 +2666,7 @@ def download_video(video_id: str) -> None:
 
     cmd.append(url)
     print()
-    subprocess.run(cmd)
+    subprocess.run(cmd, env=_subproc_env())
     input(f"\n  {c_grn}✓ {tr('Done! Press Enter to return to omayt...', 'Terminé ! Appuyez sur Entrée pour revenir à omayt...', 'Pronto! Pressione Enter para voltar ao omayt...')}{rst}")
 
 
@@ -2669,7 +2793,7 @@ def play_direct_target(
     else:
         print(f"  {c_mut}󰒃 {tr('GPU Decode: VA-API | Anti-AdBlock: default,-tv_samsung', 'Décodage GPU : VA-API | Anti-AdBlock : default,-tv_samsung', 'Decodificação GPU: VA-API | Anti-AdBlock: default,-tv_samsung')}{rst}\n")
 
-    subprocess.run(base_cmd)
+    subprocess.run(base_cmd, env=_subproc_env())
 
 
 # ============================================================================
@@ -3038,9 +3162,9 @@ class OmarchyMainMenu:
                 "label": tr("Settings & Diagnostics", "Paramètres & diagnostics", 'Ajustes & diagnóstico'),
                 "badge": THEME.name,
                 "desc": tr(
-                    "Language (EN/PT), dependencies, active Omarchy palette, cache and VA-API",
-                    "Langue (EN/PT), dépendances, palette Omarchy active, cache et VA-API",
-                    "Idioma (EN/PT), dependências, paleta Omarchy ativa, cache e VA-API",
+                    "Language (EN/FR/PT), dependencies, active Omarchy palette, cache and VA-API",
+                    "Langue (EN/FR/PT), dépendances, palette Omarchy active, cache et VA-API",
+                    "Idioma (EN/FR/PT), dependências, paleta Omarchy ativa, cache e VA-API",
                 ),
             },
             {
@@ -3208,7 +3332,11 @@ class OmarchyMainMenu:
         border_col = THEME.ansi_fg("accent")
         dim_border = THEME.ansi_fg("muted")
         top_left = f"{c_acc}󰕧 {tr('Main Menu', 'Menu principal', 'Menu principal')}{rst}"
-        top_right = f"{c_mut}Sixel HD • Cava{rst}" if inner_w >= 58 else ""
+        top_right = (
+            f"{c_mut}{tr('HD Sixel • Cava', 'Sixel HD • Cava', 'Sixel HD • Cava')}{rst}"
+            if inner_w >= 58
+            else ""
+        )
         lines_buf.append(left_margin + self._box_top(inner_w, top_left, top_right, border_col))
 
         selected_desc = ""
@@ -3377,7 +3505,7 @@ class OmarchyMainMenu:
             )
             if visible_len(hint) > inner_w:
                 hint = (
-                    f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Apply', 'Appliquer', 'Aplicar')}{rst}  "
+                    f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Apply', 'OK', 'Aplicar')}{rst}  "
                     f"{c_yel}[0-9]{rst} {c_mut}{tr('Pick', 'Choix', 'Escolher')}{rst}  "
                     f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Cancel', 'Annuler', 'Cancelar')}{rst}"
                 )
@@ -3517,9 +3645,8 @@ class OmarchyMainMenu:
             )
             if visible_len(hint) > inner_w:
                 hint = (
-                    f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Search', 'Chercher', 'Buscar')}{rst}  "
+                    f" {c_yel}{tr('[Enter]', '[Entrée]', '[Enter]')}{rst} {c_mut}{tr('Search', 'OK', 'Buscar')}{rst}  "
                     f"{c_mag}[Alt+F]{rst} {c_mut}{tr('Filter', 'Filtre', 'Filtro')}{rst}  "
-                    f"{c_yel}[↑/↓]{rst} {c_mut}{tr('Recent', 'Récents', 'Recentes')}{rst}  "
                     f"{c_red}{tr('[Esc]', '[Échap]', '[Esc]')}{rst} {c_mut}{tr('Back', 'Retour', 'Voltar')}{rst}"
                 )
             lines.append(lm + self._box_line(hint, inner_w, b_col))
@@ -3635,11 +3762,12 @@ class OmarchyMainMenu:
 
             for idx, (_m_id, m_key, m_icon, m_lbl, m_col) in enumerate(modes):
                 fg_i = THEME.ansi_fg(m_col, bold=(idx == mode_idx))
+                disp_mlbl = truncate_plain(m_lbl, max(16, inner_w - 12))
                 if idx == mode_idx:
-                    row = f"{c_grn}┃ ❯{sel_bg} {c_yel}[{m_key}]{sel_bg} {fg_i}{m_icon}  {c_fg}{m_lbl}"
+                    row = f"{c_grn}┃ ❯{sel_bg} {c_yel}[{m_key}]{sel_bg} {fg_i}{m_icon}  {c_fg}{disp_mlbl}"
                     lines.append(lm + self._box_line(row, inner_w, b_col, bg=sel_bg))
                 else:
-                    row = f"    {c_mut}[{m_key}]{rst} {fg_i}{m_icon}{rst}  {c_txt}{m_lbl}{rst}"
+                    row = f"    {c_mut}[{m_key}]{rst} {fg_i}{m_icon}{rst}  {c_txt}{disp_mlbl}{rst}"
                     lines.append(lm + self._box_line(row, inner_w, b_col))
 
             lines.append(lm + self._box_div(inner_w, dim_b))
@@ -3733,7 +3861,15 @@ class OmarchyMainMenu:
 
             if not files:
                 lines.append(lm + self._box_line("", inner_w, b_col))
-                lines.append(lm + self._box_line(f" {c_mut}{tr('No video or song downloaded yet.', 'Aucune vidéo ou chanson téléchargée pour le moment.', 'Nenhum vídeo ou música baixado ainda.')}{rst}", inner_w, b_col))
+                empty_txt = truncate_plain(
+                    tr(
+                        "No video or song downloaded yet.",
+                        "Aucune vidéo ou chanson téléchargée pour le moment.",
+                        "Nenhum vídeo ou música baixado ainda.",
+                    ),
+                    inner_w - 2,
+                )
+                lines.append(lm + self._box_line(f" {c_mut}{empty_txt}{rst}", inner_w, b_col))
                 tip_txt = truncate_plain(
                     tr(
                         "Use Alt+D in the TUI to download MP4 or MP3 files.",
@@ -3884,36 +4020,54 @@ class OmarchyMainMenu:
 
             lang_src = {
                 "env": tr("forced by OMAYT_LANG", "forcé par OMAYT_LANG", "forçado por OMAYT_LANG"),
+                "cli": tr("from --lang", "via --lang", "via --lang"),
                 "settings": tr("saved here", "enregistré ici", "salvo aqui"),
                 "omarchy": tr("from Omarchy", "d'après Omarchy", "do Omarchy"),
                 "locale": tr("from the system locale", "d'après la locale système", "da locale do sistema"),
                 "default": tr("default", "par défaut", "padrão"),
             }.get(APP_LANG_SOURCE, tr("default", "par défaut", "padrão"))
-            lang_label = tr("Interface language:", "Langue de l’interface :", "Idioma da interface:")
-            lines.append(
-                lm
-                + self._box_line(
-                    f"{c_acc}🌍 {lang_label}{rst} {c_fg}{LANG_NAMES[APP_LANG]}{rst} "
-                    f"{c_mut}({APP_LANG}, {lang_src}){rst}",
-                    inner_w,
-                    b_col,
-                )
+            lang_label = tr("Interface Language:", "Langue de l’interface :", "Idioma da interface:")
+            lang_hdr_full = (
+                f"{c_acc}🌍 {lang_label}{rst} {c_fg}{ui_lang_name(APP_LANG)}{rst} "
+                f"{c_mut}({APP_LANG}, {lang_src}){rst}"
             )
+            if visible_len(lang_hdr_full) > inner_w:
+                lang_hdr_full = f"{c_acc}🌍 {lang_label}{rst} {c_fg}{ui_lang_name(APP_LANG)}{rst}"
+            if visible_len(lang_hdr_full) > inner_w:
+                short_ll = tr("Language:", "Langue :", "Idioma:")
+                lang_hdr_full = f"{c_acc}🌍 {short_ll}{rst} {c_fg}{ui_lang_name(APP_LANG)}{rst}"
+            lines.append(lm + self._box_line(lang_hdr_full, inner_w, b_col))
+            en_name = ui_lang_name("en")
+            pt_name = ui_lang_name("pt")
+            fr_name = ui_lang_name("fr")
             en_opt = (
-                f"{c_yel}[e]{rst} {c_grn}✓{rst} {c_fg}English{rst}"
+                f"{c_yel}[e]{rst} {c_grn}✓{rst} {c_fg}{en_name}{rst}"
                 if APP_LANG == "en"
-                else f"{c_yel}[e]{rst} {c_mut}○ English{rst}"
+                else f"{c_yel}[e]{rst} {c_mut}○ {en_name}{rst}"
             )
             pt_opt = (
-                f"{c_yel}[p]{rst} {c_grn}✓{rst} {c_fg}Português (Brasil){rst}"
+                f"{c_yel}[p]{rst} {c_grn}✓{rst} {c_fg}{pt_name}{rst}"
                 if APP_LANG == "pt"
-                else f"{c_yel}[p]{rst} {c_mut}○ Português (Brasil){rst}"
+                else f"{c_yel}[p]{rst} {c_mut}○ {pt_name}{rst}"
+            )
+            fr_opt = (
+                f"{c_yel}[r]{rst} {c_grn}✓{rst} {c_fg}{fr_name}{rst}"
+                if APP_LANG == "fr"
+                else f"{c_yel}[r]{rst} {c_mut}○ {fr_name}{rst}"
             )
             toggle_lbl = tr("toggle", "basculer", "alternar")
-            lang_row = f"  {en_opt}   {pt_opt}   {c_yel}[l]{rst} {c_mut}{toggle_lbl}{rst}"
-            if visible_len(lang_row) > inner_w:
-                lang_row = f"  {en_opt}  {pt_opt}"
-            lines.append(lm + self._box_line(lang_row, inner_w, b_col))
+            lang_row = f"  {en_opt}  {pt_opt}  {fr_opt}  {c_yel}[l]{rst} {c_mut}{toggle_lbl}{rst}"
+            if visible_len(lang_row) <= inner_w:
+                lines.append(lm + self._box_line(lang_row, inner_w, b_col))
+            else:
+                row_a = f"  {en_opt}   {pt_opt}"
+                row_b = f"  {fr_opt}   {c_yel}[l]{rst} {c_mut}{toggle_lbl}{rst}"
+                if visible_len(row_a) <= inner_w and visible_len(row_b) <= inner_w:
+                    lines.append(lm + self._box_line(row_a, inner_w, b_col))
+                    lines.append(lm + self._box_line(row_b, inner_w, b_col))
+                else:
+                    lines.append(lm + self._box_line(f"  {en_opt}", inner_w, b_col))
+                    lines.append(lm + self._box_line(f"  {pt_opt}  {fr_opt}", inner_w, b_col))
             if APP_LANG_SOURCE == "env":
                 lines.append(
                     lm
@@ -3925,21 +4079,27 @@ class OmarchyMainMenu:
                 )
             lines.append(lm + self._box_div(inner_w, dim_b))
 
+            files_word = tr("file", "fichier", "arquivo") if thumbs_cnt == 1 else tr("files", "fichiers", "arquivos")
+            vids_word = tr("video", "vidéo", "vídeo") if watch_cnt == 1 else tr("videos", "vidéos", "vídeos")
+            srch_word = tr("search", "recherche", "busca") if search_cnt == 1 else tr("searches", "recherches", "buscas")
+            dl_word = tr("download", "téléchargement", "download") if dl_cnt == 1 else tr("downloads", "téléchargements", "downloads")
+
             lines.append(lm + self._box_line(f"{c_acc}{tr('Local Storage:', 'Stockage local :', 'Armazenamento local:')}{rst}", inner_w, b_col))
             lines.append(
                 lm + self._box_line(
-                    f"  {c_cyn}󰥶 {tr('Cache HD :', 'Cache HD :', 'Cache HD :')}{rst} {c_txt}{thumbs_cnt} {tr('files', 'fichiers', 'arquivos')} ({_format_bytes(thumbs_sz)}){rst}",
+                    f"  {c_cyn}󰥶 {tr('HD Cache :', 'Cache HD :', 'Cache HD :')}{rst} {c_txt}{thumbs_cnt} {files_word} ({_format_bytes(thumbs_sz)}){rst}",
                     inner_w,
                     b_col,
                 )
             )
+            hist_lbl_txt = f"  {c_yel}󰋚 {tr('History  :', 'Historique :', 'Histórico :')}{rst} "
             hist_summary = truncate_plain(
-                f"{watch_cnt} {tr('videos', 'vidéos', 'vídeos')} • {search_cnt} {tr('searches', 'recherches', 'buscas')} • {dl_cnt} {tr('downloads', 'téléchargements', 'downloads')}",
-                max(16, inner_w - 16),
+                f"{watch_cnt} {vids_word} • {search_cnt} {srch_word} • {dl_cnt} {dl_word}",
+                max(12, inner_w - visible_len(hist_lbl_txt)),
             )
             lines.append(
                 lm + self._box_line(
-                    f"  {c_yel}󰋚 {tr('History  :', 'Historique :', 'Histórico :')}{rst} {c_txt}{hist_summary}{rst}",
+                    f"{hist_lbl_txt}{c_txt}{hist_summary}{rst}",
                     inner_w,
                     b_col,
                 )
@@ -4020,25 +4180,30 @@ class OmarchyMainMenu:
             elif key in ("h", "H"):
                 save_json_file(SEARCH_HIST_FILE, [])
                 feedback = tr("Recent search history cleared.", "Historique des recherches récentes effacé.", 'Histórico de buscas recentes limpo.')
-            elif key in ("e", "E", "p", "P", "l", "L"):
+            elif key in ("e", "E", "p", "P", "r", "R", "l", "L"):
                 if key in ("e", "E"):
                     target_lang = "en"
                 elif key in ("p", "P"):
                     target_lang = "pt"
+                elif key in ("r", "R"):
+                    target_lang = "fr"
                 else:
-                    target_lang = "pt" if APP_LANG == "en" else "en"
-                if not save_ui_lang(target_lang):
+                    cycle = ("en", "pt", "fr")
+                    target_lang = cycle[(cycle.index(APP_LANG) + 1) % len(cycle)]
+                ok_saved = save_ui_lang(target_lang)
+                target_name = ui_lang_name(target_lang)
+                if not ok_saved:
                     env_lang = _env_ui_lang() or ""
                     feedback = tr(
-                        f"{LANG_NAMES[target_lang]} saved, but OMAYT_LANG={env_lang} has priority.",
-                        f"{LANG_NAMES[target_lang]} enregistré, mais OMAYT_LANG={env_lang} a la priorité.",
-                        f"{LANG_NAMES[target_lang]} salvo, mas OMAYT_LANG={env_lang} tem prioridade.",
+                        f"{target_name} saved, but OMAYT_LANG={env_lang} has priority.",
+                        f"{target_name} enregistré, mais OMAYT_LANG={env_lang} a la priorité.",
+                        f"{target_name} salvo, mas OMAYT_LANG={env_lang} tem prioridade.",
                     )
                 else:
                     feedback = tr(
-                        f"Language switched to {LANG_NAMES[target_lang]}.",
-                        f"Langue changée en {LANG_NAMES[target_lang]}.",
-                        f"Idioma alterado para {LANG_NAMES[target_lang]}.",
+                        f"Language switched to {target_name}.",
+                        f"Langue changée en {target_name}.",
+                        f"Idioma alterado para {target_name}.",
                     )
 
     def run(self) -> int:
@@ -4222,7 +4387,7 @@ def choose_search_filter_tui(current_filter: str = "all") -> str | None:
         rows.append(
             f"{fid}\t{mark} {c_yel}[{flt['key']}]{rst} {c_acc}{flt['icon']}{rst}  {c_fg}{get_search_filter_label(fid)}{rst}"
         )
-    fzf_env = dict(os.environ)
+    fzf_env = _subproc_env()
     fzf_env["SHELL"] = "/bin/sh"
     proc = subprocess.run(
         [
@@ -4421,14 +4586,14 @@ def run_tui(
             "--border=rounded",
             f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [{tr('Theme:', 'Thème :', 'Tema:')} {THEME.name}{mode_tag}{label_query}{label_filter}] ",
             "--border-label-pos=3",
-            f"--preview-label= 󰥶 {tr('Thumbnail HD & Details', 'Vignette HD & détails', 'Miniatura HD & detalhes')} ",
+            f"--preview-label= 󰥶 {tr('HD Thumbnail & Details', 'Vignette HD & détails', 'Miniatura HD & detalhes')} ",
             "--delimiter=\t",
             "--with-nth=2..",
             f"--prompt=  {tr('Search YouTube', 'Rechercher sur YouTube', 'Buscar no YouTube')} > ",
             f"--header={header_bar}",
             "--header-first",
             "--preview-window=right:55%:border-rounded:wrap",
-            f"--preview=python3 {script} --internal-preview {{1}} {{q}}",
+            f"--preview=python3 {shlex.quote(script)} --internal-preview {{1}} {{q}}",
             f"--bind=load:{load_pos}",
             "--bind=change:first",
             "--bind=enter:print(enter)+accept",
@@ -4449,7 +4614,7 @@ def run_tui(
             THEME.fzf_color_arg(),
         ]
 
-        fzf_env = dict(os.environ)
+        fzf_env = _subproc_env()
         fzf_env["SHELL"] = "/bin/sh"
 
         proc = subprocess.run(
@@ -4633,7 +4798,7 @@ def print_help() -> None:
     keys_title = tr("SHORTCUTS IN THE TUI:", "RACCOURCIS DANS LA TUI :", "ATALHOS NA TUI:")
     lines = [
         f"{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI "
-        f"({tr('Interactive Menu', 'Menu interactif', 'Menu interativo')} + Sixel HD + VA-API + Cava)",
+        f"({tr('Interactive Menu + HD Sixel', 'Menu interactif + Sixel HD', 'Menu interativo + Sixel HD')} + VA-API + Cava)",
         "",
         f"{c_yel}{usage}{rst}",
         row(
@@ -4641,6 +4806,12 @@ def print_help() -> None:
             "Opens the interactive omayt Main Menu",
             "Ouvre le menu principal interactif d’omayt",
             "Abre o menu principal interativo do omayt",
+        ),
+        row(
+            ("omayt --lang en|fr|pt", "omayt --lang en|fr|pt", "omayt --lang en|fr|pt"),
+            "Runs omayt in the selected interface language (English, French, Portuguese)",
+            "Lance omayt dans la langue choisie (anglais, français, portugais)",
+            "Executa o omayt no idioma escolhido (inglês, francês, português)",
         ),
         row(
             ("omayt --no-menu / -t", "omayt --no-menu / -t", "omayt --no-menu / -t"),
@@ -4771,6 +4942,20 @@ def print_help() -> None:
 
 def main(argv: list[str]) -> int:
     ensure_dirs()
+    args_in = list(argv)
+    while args_in:
+        first = args_in[0]
+        if first in ("-L", "--lang") and len(args_in) >= 2:
+            set_runtime_ui_lang(args_in[1], source="cli")
+            args_in = args_in[2:]
+            continue
+        if first.startswith("--lang="):
+            set_runtime_ui_lang(first.split("=", 1)[1], source="cli")
+            args_in = args_in[1:]
+            continue
+        break
+    argv = args_in
+
     if not argv:
         return run_main_menu()
 

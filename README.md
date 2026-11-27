@@ -167,9 +167,9 @@ omayt -h
 
 ### 🌍 Interface language
 
-The interface ships in **English**, **Brazilian Portuguese** and **French** — main menu, `fzf` labels, preview pane, player banners and `--help`. On first launch it automatically follows your **Omarchy language** (`~/.config/omarchy/language`) and can be switched anytime in **[7] Settings & Diagnostics** (`[e]` English, `[p]` Português (Brasil), `[l]` toggle). Resolution order:
+The interface ships in **English**, **Brazilian Portuguese** and **French** — main menu, `fzf` labels, preview pane, player banners and `--help`. On first launch it automatically follows your **Omarchy language** (`~/.config/omarchy/language`) and can be switched anytime in **[7] Settings & Diagnostics** (`[e]` English, `[p]` Portuguese (Brazil), `[r]` French, `[l]` toggle) or per-run via `--lang en|fr|pt`. Resolution order:
 
-1. `OMAYT_LANG` (`en`, `pt`, `fr`, plus `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), which always wins;
+1. `--lang en|fr|pt` (CLI flag) or `OMAYT_LANG` (`en`, `pt`, `fr`, plus `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…);
 2. the language saved in **[7] Settings & Diagnostics** (`~/.config/omayt/settings.json`);
 3. **Omarchy's system language** (`~/.config/omarchy/language`, e.g. `pt-BR` starts in Portuguese, `en` starts in English);
 4. your system locale (`LC_ALL` / `LC_MESSAGES` / `LANG`);
@@ -177,6 +177,7 @@ The interface ships in **English**, **Brazilian Portuguese** and **French** — 
 
 ```bash
 # One run only, without touching the saved preference
+omayt --lang en
 OMAYT_LANG=pt omayt
 ```
 

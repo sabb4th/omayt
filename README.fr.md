@@ -167,9 +167,9 @@ omayt -h
 
 ### 🌍 Langue de l'interface
 
-L'interface est livrée en **anglais**, en **portugais du Brésil** et en **français** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Au premier lancement, elle suit automatiquement la **langue d'Omarchy** (`~/.config/omarchy/language`) et peut être modifiée à tout moment dans **[7] Paramètres & diagnostics** (`[e]` English, `[p]` Português (Brasil), `[l]` basculer). Ordre de priorité :
+L'interface est livrée en **anglais**, en **portugais du Brésil** et en **français** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Au premier lancement, elle suit automatiquement la **langue d'Omarchy** (`~/.config/omarchy/language`) et peut être modifiée à tout moment dans **[7] Paramètres & diagnostics** (`[e]` English, `[p]` Portugais (Brésil), `[r]` Français, `[l]` basculer) ou ponctuellement via `--lang en|fr|pt`. Ordre de priorité :
 
-1. `OMAYT_LANG` (`en`, `pt`, `fr`, ainsi que `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), toujours prioritaire ;
+1. `--lang en|fr|pt` (option CLI) ou `OMAYT_LANG` (`en`, `pt`, `fr`, ainsi que `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), toujours prioritaire ;
 2. la langue enregistrée dans **[7] Paramètres & diagnostics** (`~/.config/omayt/settings.json`) ;
 3. la **langue système d'Omarchy** (`~/.config/omarchy/language`) ;
 4. votre locale système (`LC_ALL` / `LC_MESSAGES` / `LANG`) ;
@@ -177,6 +177,7 @@ L'interface est livrée en **anglais**, en **portugais du Brésil** et en **fran
 
 ```bash
 # Pour un seul lancement, sans toucher au réglage enregistré
+omayt --lang en
 OMAYT_LANG=pt omayt
 ```
 
