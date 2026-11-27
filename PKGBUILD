@@ -1,6 +1,6 @@
 # Maintainer: sabb4th <eliassabat2@gmail.com>
 pkgname=omayt
-pkgver=1.3.0
+pkgver=1.4.0
 pkgrel=1
 pkgdesc="Omarchy YouTube TUI with Sixel/Kitty HD thumbnails, Cava FFT, and VA-API"
 arch=('any')

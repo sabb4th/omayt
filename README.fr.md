@@ -4,20 +4,20 @@
 
 **Un client YouTube de terminal rapide et visuel, sans API — conçu pour l'écosystème [Omarchy Linux](https://omarchy.org).**
 
-[![Version](https://img.shields.io/badge/version-v1.3.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
+[![Version](https://img.shields.io/badge/version-v1.4.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
 [![Platform](https://img.shields.io/badge/platform-Omarchy%20%7C%20Arch%20Linux-a6e3a1?style=for-the-badge)](https://omarchy.org)
 [![Python](https://img.shields.io/badge/python-Zero%20pip%20deps-94e2d5?style=for-the-badge)](./omayt)
 [![Graphics](https://img.shields.io/badge/thumbnails-Sixel%20HD%20%C2%B7%20Kitty-f5c2e7?style=for-the-badge)](./omayt)
 [![Audio](https://img.shields.io/badge/audio-Cava%20FFT%2060%20FPS-fab387?style=for-the-badge)](./omayt)
 [![License](https://img.shields.io/badge/license-MIT-f9e2af?style=for-the-badge)](./LICENSE)
 
-[Points forts](#-ce-qui-le-rend-bon) • [Modes de lecture](#-4-modes-de-lecture) • [Installation](#-dépendances--installation) • [CLI](#-utilisation-cli) • [Raccourcis](#️-raccourcis) • [Stockage](#️-stockage-local)
+[Points forts](#-ce-qui-le-rend-bon) • [Captures](#️-captures-décran) • [Nouveautés](#-nouveautés-de-la-v140) • [Modes de lecture](#-4-modes-de-lecture) • [Installation](#-dépendances--installation) • [CLI](#-utilisation-cli) • [Raccourcis](#️-raccourcis) • [Stockage](#️-stockage-local)
 
 <br />
 
-<img src="assets/preview.png" alt="omayt v1.3.0 — Menu principal sur Omarchy Linux avec le thème Catppuccin" width="100%" />
+<img src="assets/preview.png" alt="omayt v1.4.0 — Menu principal sur Omarchy Linux avec le thème Catppuccin" width="100%" />
 
-*Menu principal interactif d'`omayt v1.3.0` exécuté dans une fenêtre flottante sur Hyprland / Omarchy avec le thème Catppuccin, synchronisé automatiquement.*
+*Menu principal interactif d'`omayt v1.4.0` exécuté dans une fenêtre flottante sur Hyprland / Omarchy avec le thème Catppuccin, synchronisé automatiquement.*
 
 </div>
 
@@ -34,6 +34,37 @@
 | **Zéro blocage `HTTP 403`** | Protection en 3 couches (*Anti-403*) avec le contournement du profil `tv_samsung`, `Ad-Wait Guard` et reconnexion automatique. |
 | **Zéro saccade AV1 sur le CPU** | Exclut les flux AV1 (`[vcodec!^=av01]`) et privilégie **H.264 / VP9** avec décodage **VA-API** sur le GPU. |
 | **Zéro `cava` externe nécessaire** | Un visualiseur de spectre **FFT Radix-2** à **60 FPS**, intégré directement au lecteur audio. |
+
+---
+
+## 🚀 Démarrage rapide
+
+```bash
+git clone https://github.com/sabb4th/omayt.git && cd omayt && ./install.sh
+omayt                      # menu interactif
+omayt "omarchy linux"      # recherche directe
+omayt "raimundo/"          # toutes les vidéos d'une chaîne
+omayt --lang en            # force la langue de l'interface (en / pt / fr)
+```
+
+## 🖼️ Captures d'écran
+
+`omayt` lit le **thème Omarchy actif** au démarrage : le menu suit le thème que vous choisissez, sans aucune configuration.
+
+| | |
+| :---: | :---: |
+| <img src="assets/preview.png" alt="Catppuccin" width="100%" /><br/>**Catppuccin** | <img src="assets/screenshot-catppuccin-latte.png" alt="Catppuccin Latte" width="100%" /><br/>**Catppuccin Latte** |
+| <img src="assets/screenshot-earth.png" alt="Earth" width="100%" /><br/>**Earth** | <img src="assets/screenshot-jade-horse.png" alt="Jade Horse" width="100%" /><br/>**Jade Horse** |
+| <img src="assets/screenshot-gruvbox.png" alt="Gruvbox" width="100%" /><br/>**Gruvbox** | |
+
+> Les captures ont été réalisées avec la `v1.3.0` et l'interface en portugais ; depuis la `v1.4.0`, toute l'interface suit la langue choisie (English, Português ou Français).
+
+## 🆕 Nouveautés de la v1.4.0
+
+- **Interface entièrement en anglais :** libellés, modales, aperçus, bandeaux des lecteurs et `--help` suivent la langue choisie — y compris les vidéos en cache (`AO VIVO` → `LIVE`, `Sem título` → `Untitled`).
+- **Langue partout :** détection de la langue d'Omarchy, `--lang en|fr|pt`, `OMAYT_LANG` et `[e]` / `[p]` / `[r]` / `[l]` dans les Paramètres, propagée à `fzf`, `mpv` et `yt-dlp`.
+- **Recherche par chaîne :** `nom/` liste les vidéos d'une chaîne, `nom/sujet` cherche dedans, avec pagination +30.
+- **Filtres de recherche :** `Alt+F` (ou `--filter`) — Aujourd'hui, Cette semaine, Ce mois-ci, Cette année, Les plus vues, Courtes, Moyennes, Longues, En direct.
 
 ---
 
@@ -75,7 +106,9 @@ Les clients de terminal traditionnels (`ytfzf` ou `mpv` seul) échouent souvent 
 
 </details>
 
-### 🔎 Recherche paginée (30 par 30), URL directe, bibliothèque hors ligne & diagnostics
+### 🔎 Recherche par chaîne (`chaîne/`), filtres de recherche (`Alt+F`), pagination & diagnostics
+- **Recherche dédiée à une chaîne (`chaîne/`) :** saisissez `nom/` (ex. `raimundo/`) pour lister **uniquement les vidéos de cette chaîne** (du plus récent au plus ancien, avec pagination +30), ou `nom/sujet` (ex. `raimundo/bitcoin`) pour rechercher dans cette chaîne.
+- **Filtres de recherche (`Alt+F`) :** appuyez sur `Alt+F` (ou `Ctrl+O`) dans la TUI — ou `Tab` / `Alt+F` dans la fenêtre de recherche — pour filtrer par **Aujourd'hui**, **Cette semaine**, **Ce mois-ci**, **Cette année**, **Les plus vues**, **Courtes (< 3 min)**, **Moyennes (3–20 min)**, **Longues (> 20 min)** ou **En direct**.
 - **Pagination par 30 :** chaque recherche charge 30 résultats et permet d'en étendre **+30** à la demande (`Alt+M`, `Ctrl+E` ou en sélectionnant l'élément en fin de liste), en préservant l'ordre et la position du curseur.
 - **Lien direct / URL (`[5]`) :** accepte les URL complètes (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) ou les ID de 11 caractères, avec **détection automatique du presse-papiers** via `wl-paste` et un choix du lecteur (*Fenêtre MPV*, *Terminal Sixel/Kitty*, *Cava* ou *Téléchargement*).
 - **Téléchargements & bibliothèque hors ligne (`Alt+D` / `[6]`) :** télécharge les vidéos en **MP4 (1080p H.264/VP9)** ou l'audio seul en **MP3** dans `~/Videos/omayt/`, et lit les fichiers locaux directement depuis le menu.
@@ -137,6 +170,13 @@ omayt
 # Recherche directement sur YouTube (30 résultats initiaux + vignettes HD)
 omayt "omarchy linux"
 
+# Liste toutes les vidéos d'une chaîne précise (ou recherche dans cette chaîne)
+omayt "raimundo/"
+omayt "raimundo/bitcoin"
+
+# Recherche avec un filtre depuis la CLI (today, week, month, year, views, short, medium, long, live)
+omayt --filter views "omarchy linux"
+
 # Ignore le menu d'accueil et ouvre directement l'explorateur TUI (fzf)
 omayt --no-menu
 omayt -t
@@ -158,15 +198,17 @@ omayt -h
 
 ### 🌍 Langue de l'interface
 
-L'interface est livrée en **anglais**, en **français** et en **portugais du Brésil** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Elle est choisie dans cet ordre :
+L'interface est livrée en **anglais**, en **portugais du Brésil** et en **français** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Au premier lancement, elle suit automatiquement la **langue d'Omarchy** (`~/.config/omarchy/language`) et peut être modifiée à tout moment dans **[7] Paramètres & diagnostics** (`[e]` English, `[p]` Portugais (Brésil), `[r]` Français, `[l]` basculer) ou ponctuellement via `--lang en|fr|pt`. Ordre de priorité :
 
-1. `OMAYT_LANG` (`en`, `fr`, `pt`, ainsi que `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), toujours prioritaire ;
-2. la langue enregistrée avec **`l`** dans **[7] Paramètres & diagnostics** ;
-3. votre locale système (`LANG` / `LC_MESSAGES`), donc un bureau français ou brésilien démarre dans cette langue ;
-4. l'anglais sinon.
+1. `--lang en|fr|pt` (option CLI) ou `OMAYT_LANG` (`en`, `pt`, `fr`, ainsi que `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), toujours prioritaire ;
+2. la langue enregistrée dans **[7] Paramètres & diagnostics** (`~/.config/omayt/settings.json`) ;
+3. la **langue système d'Omarchy** (`~/.config/omarchy/language`) ;
+4. votre locale système (`LC_ALL` / `LC_MESSAGES` / `LANG`) ;
+5. l'anglais sinon.
 
 ```bash
 # Pour un seul lancement, sans toucher au réglage enregistré
+omayt --lang en
 OMAYT_LANG=pt omayt
 ```
 
@@ -189,7 +231,8 @@ OMAYT_LANG=pt omayt
 | Raccourci | Action |
 | :--- | :--- |
 | **`Enter`** | Regarder dans **`mpv`** *(ou lire dans Cava en mode musique ; rechercher sur la première ligne ` ` / charger +30 sur la dernière ligne `󰐕`)* |
-| **`Ctrl+S`** | **Rechercher sur YouTube** le terme saisi dans la barre du haut *(30 résultats)* |
+| **`Ctrl+S`** | **Rechercher sur YouTube** le terme saisi dans la barre du haut *(30 résultats ; prend en charge `chaîne/` et `chaîne/sujet`)* |
+| **`Alt+F`** *(ou `Ctrl+O`)* | **Choisir un filtre de recherche** *(Pertinence, Aujourd'hui, Semaine, Mois, Année, Plus vues, Courtes, Moyennes, Longues, Direct)* |
 | **`Alt+M`** *(ou `Ctrl+E`)* | **Charger +30 résultats** pour la recherche en cours *(pagination par 30)* |
 | **`Alt+I`** *(ou `Ctrl+T`)* | Regarder **dans le terminal** en vrais pixels (`--vo=sixel` / `--vo=kitty`) |
 | **`Alt+B`** | Regarder dans le terminal en **blocs TrueColor** (`--vo=tct`) |
