@@ -273,6 +273,18 @@ You can manage and clear cache or history from the **`[7] Settings & diagnostics
 rm -rf ~/.cache/omayt ~/.config/omayt
 ```
 
+`omayt` writes **nothing outside its own directories** unless you ask for it. The shared configuration files `~/.config/mpv/mpv.conf` and `~/.config/yt-dlp/config` are only touched by `omayt --fix-ytdlp` (or `[f]` in Settings & diagnostics); starting the menu or the TUI leaves every other mpv/yt-dlp invocation on the system alone.
+
+---
+
+## 🧪 Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+They run the real program with `HOME` and the XDG directories redirected to a temporary directory, so they never read or write your own configuration.
+
 ---
 
 ## 📄 License
