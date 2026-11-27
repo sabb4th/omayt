@@ -457,7 +457,12 @@ def _import_ytfzf_history_if_empty() -> None:
 
 
 def ensure_global_ytdlp_fix() -> bool:
-    """Ensures ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf are optimized."""
+    """Ensures ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf are optimized.
+
+    Global configuration is written only on explicit request: the `--fix-ytdlp`
+    command, or the [f] key in Settings & Diagnostics. Starting omayt (menu or
+    TUI) never edits files used by every other mpv/yt-dlp invocation.
+    """
     base_cfg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     ytdlp_cfg_dir = base_cfg / "yt-dlp"
     ytdlp_cfg = ytdlp_cfg_dir / "config"
@@ -4208,7 +4213,6 @@ class OmarchyMainMenu:
 
     def run(self) -> int:
         ensure_dirs()
-        ensure_global_ytdlp_fix()
 
         while True:
             items = self._build_menu_items()
@@ -4420,7 +4424,6 @@ def run_tui(
     initial_filter: str = "all",
 ) -> int:
     ensure_dirs()
-    ensure_global_ytdlp_fix()
 
     if not shutil.which("fzf"):
         sys.stderr.write(tr("Error: 'fzf' is not installed.\n", "Erreur : 'fzf' n’est pas installé.\n", "Erro: 'fzf' não está instalado.\n"))
